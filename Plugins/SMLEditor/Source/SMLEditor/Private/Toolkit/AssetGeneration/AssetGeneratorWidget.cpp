@@ -7,17 +7,17 @@
 void SAssetGeneratorWidget::Construct(const FArguments& InArgs) {
 	ChildSlot[
 		SNew(SVerticalBox)
-		+SVerticalBox::Slot().AutoHeight()[
+		+SVerticalBox::Slot().AutoHeight().Padding(FMargin(5.0f, 2.0f))[
 			SNew(SHorizontalBox)
 			+SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Center).VAlign(VAlign_Center)[
 				SNew(STextBlock)
-				.Text(LOCTEXT("AssetGenerator_DumpPath", "Dump Root Folder Path: "))
+				.Text(LOCTEXT("AssetGenerator_DumpPath", "Dump Root Folder Path:"))
 			]
-			+SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)[
+			+SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(FMargin(5.0f, 0.0f))[
 				SAssignNew(InputDumpPathText, SEditableTextBox)
-				.HintText(LOCTEXT("AssetGenerator_DumpPath", "Enter path to the dump root folder here..."))
+				.HintText(LOCTEXT("AssetGenerator_DumpPathHint", "Enter path to the dump root folder here..."))
 				.Text(FText::FromString(GetDefaultAssetDumpPath()))
-				.OnTextCommitted_Lambda([this](const FText&) { UpdateDumpViewRootDirectory(); })
+				.OnTextCommitted_Lambda([this](const FText&, const ETextCommit::Type) { UpdateDumpViewRootDirectory(); })
 			]
 			+SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Center).VAlign(VAlign_Center)[
 				SNew(SButton)
@@ -25,7 +25,7 @@ void SAssetGeneratorWidget::Construct(const FArguments& InArgs) {
 				.OnClicked_Raw(this, &SAssetGeneratorWidget::OnBrowseOutputPathPressed)
 			]
 		]
-		+SVerticalBox::Slot().AutoHeight()[
+		+SVerticalBox::Slot().AutoHeight().Padding(FMargin(5.0f, 5.0f))[
 			SNew(SHorizontalBox)
 			+SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Center).VAlign(VAlign_Center)[
 				SNew(STextBlock)
@@ -49,7 +49,7 @@ void SAssetGeneratorWidget::Construct(const FArguments& InArgs) {
 				})
 			]
 		]
-		+SVerticalBox::Slot().AutoHeight()[
+		+SVerticalBox::Slot().AutoHeight().Padding(FMargin(5.0f, 2.0f))[
 			SNew(SHorizontalBox)
 			+SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Center).VAlign(VAlign_Center)[
 				SNew(STextBlock)
@@ -68,14 +68,18 @@ void SAssetGeneratorWidget::Construct(const FArguments& InArgs) {
 		+SVerticalBox::Slot().AutoHeight()[
 			SAssignNew(AssetDumpViewWidget, SAssetDumpViewWidget)
 		]
-		+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Right).VAlign(VAlign_Center)[
+		+SVerticalBox::Slot().FillHeight(1.0f)[
+			SNew(SSpacer)
+		]
+		+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Right).VAlign(VAlign_Bottom).Padding(FMargin(5.0f, 5.0f))[
 			SNew(SButton)
+			.Text(LOCTEXT("AssetGenerator_GenerateAssets", "Generate Assets!"))
 			.OnClicked_Raw(this, &SAssetGeneratorWidget::OnGenerateAssetsButtonPressed)
 			.IsEnabled_Lambda([]() { return !FAssetGenerationProcessor::GetActiveAssetGenerator().IsValid(); })
 		]
 	];
+	UpdateDumpViewRootDirectory();
 }
-
 
 FReply SAssetGeneratorWidget::OnGenerateAssetsButtonPressed() {
 	TArray<FName> SelectedAssetPackages;
@@ -84,7 +88,8 @@ FReply SAssetGeneratorWidget::OnGenerateAssetsButtonPressed() {
 	if (SelectedAssetPackages.Num() == 0) {
 		return FReply::Handled();
 	}
-	
+
+	AssetGeneratorSettings.DumpRootDirectory = GetAssetDumpFolderPath();
 	FAssetGenerationProcessor::CreateAssetGenerator(AssetGeneratorSettings, SelectedAssetPackages);
 	return FReply::Handled();
 }
@@ -97,11 +102,17 @@ FString SAssetGeneratorWidget::GetAssetDumpFolderPath() const {
 	if (FolderPath.IsEmpty() || !FPaths::ValidatePath(*FolderPath)) {
 		return GetDefaultAssetDumpPath();
 	}
+
+	//Make sure folder path actually ends with a forward slash
+	if (FolderPath[FolderPath.Len() - 1] != '/') {
+		FolderPath.AppendChar('/');
+	}
+	
 	return FolderPath;
 }
 
 void SAssetGeneratorWidget::UpdateDumpViewRootDirectory() {
-	this->AssetDumpViewWidget->SetAssetDumpRootDirectory(GetDefaultAssetDumpPath());
+ 	this->AssetDumpViewWidget->SetAssetDumpRootDirectory(GetAssetDumpFolderPath());
 }
 
 void SAssetGeneratorWidget::SetAssetDumpFolderPath(const FString& InDumpFolderPath) {

@@ -127,6 +127,7 @@ void FAssetHelper::SerializeStruct(TSharedPtr<FJsonObject> OutObject, UStruct* S
         const TSharedPtr<FJsonObject> FieldObject = MakeShareable(new FJsonObject());
 
         if (Child->IsA<UFunction>()) {
+            FieldObject->SetStringField(TEXT("FieldKind"), TEXT("Function"));
             SerializeFunction(FieldObject, Cast<UFunction>(Child), ObjectHierarchySerializer);
         } else {
             checkf(0, TEXT("Unsupported Children object type: %s"), *Child->GetClass()->GetPathName());
@@ -144,6 +145,7 @@ void FAssetHelper::SerializeStruct(TSharedPtr<FJsonObject> OutObject, UStruct* S
         const TSharedPtr<FJsonObject> FieldObject = MakeShareable(new FJsonObject());
 
         if (ChildField->IsA<FProperty>()) {
+            FieldObject->SetStringField(TEXT("FieldKind"), TEXT("Property"));
             SerializeProperty(FieldObject, Cast<FProperty>(ChildField), ObjectHierarchySerializer);
         } else {
             checkf(0, TEXT("Unsupported ChildProperties object type: %s"), *ChildField->GetClass()->GetName());
@@ -169,7 +171,7 @@ void FAssetHelper::SerializeScriptStruct(TSharedPtr<FJsonObject> OutObject, UScr
     SerializeStruct(OutObject, Struct, ObjectHierarchySerializer);
 
     //Serialize struct flags
-    OutObject->SetStringField(TEXT("StructFlags"), FString::Printf(TEXT("%d"), Struct->StructFlags));
+    OutObject->SetNumberField(TEXT("StructFlags"), Struct->StructFlags);
 }
 
 void FAssetHelper::SerializeProperty(TSharedPtr<FJsonObject> OutObject, FProperty* Property, UObjectHierarchySerializer* ObjectHierarchySerializer) {
@@ -181,18 +183,13 @@ void FAssetHelper::SerializeProperty(TSharedPtr<FJsonObject> OutObject, FPropert
     
     //Serialize property flags
     const EPropertyFlags SaveFlags = Property->PropertyFlags & ~CPF_ComputedFlags;
-    OutObject->SetStringField(TEXT("PropertyFlags"), FString::Printf(TEXT("%llu"), SaveFlags));
+    OutObject->SetStringField(TEXT("PropertyFlags"), FString::Printf(TEXT("%lld"), SaveFlags));
 
     //Serialize RepNotify function name
     OutObject->SetStringField(TEXT("RepNotifyFunc"), Property->RepNotifyFunc.ToString());
 
     //Serialize additional data depending on property type
-	if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property)) {
-		//For object properties, we serialize object type
-		const int32 ObjectClassIndex = ObjectHierarchySerializer->SerializeObject(ObjectProperty->PropertyClass);
-		OutObject->SetNumberField(TEXT("PropertyClass"), ObjectClassIndex);
-		
-	} else if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property)) {
+	if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property)) {
         //For enum properties, we serialize Enum and UnderlyingProperty
         const int32 EnumObjectIndex = ObjectHierarchySerializer->SerializeObject(EnumProperty->GetEnum());
         OutObject->SetNumberField(TEXT("Enum"), EnumObjectIndex);
@@ -266,6 +263,11 @@ void FAssetHelper::SerializeProperty(TSharedPtr<FJsonObject> OutObject, FPropert
     } else if (FFieldPathProperty* FieldPathProperty = Cast<FFieldPathProperty>(Property)) {
         //Serialize field class
         OutObject->SetStringField(TEXT("PropertyClass"), FieldPathProperty->PropertyClass->GetName());
+        
+    } else if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property)) {
+        //For object properties, we serialize object type
+        const int32 ObjectClassIndex = ObjectHierarchySerializer->SerializeObject(ObjectProperty->PropertyClass);
+        OutObject->SetNumberField(TEXT("PropertyClass"), ObjectClassIndex);
         
     } else {
         //Other property classes don't override Serialize, so do nothing

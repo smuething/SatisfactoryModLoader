@@ -9,7 +9,7 @@
 
 #define BEGIN_ASSET_SERIALIZATION_BP(AssetClass) \
 { \
-	AssetClass* Asset = Context->GetBlueprintAsset<AssetClass>(); \
+	AssetClass* Asset = Context->GetAsset<AssetClass>(); \
 	TSharedRef<FJsonObject> Data = Context->GetData(); \
 	UPropertySerializer* Serializer = Context->GetPropertySerializer(); \
 	UObjectHierarchySerializer* ObjectSerializer = Context->GetObjectSerializer();
@@ -82,6 +82,9 @@ public:
 
 #define DISABLE_SERIALIZATION(Class, PropertyName) \
 	Serializer->DisablePropertySerialization(FAssetTypeSerializerMacros_Internals::GetStaticStructOrClass<Class>(), GET_MEMBER_NAME_CHECKED(Class, PropertyName));
+
+#define DISABLE_SERIALIZATION_RAW(Class, PropertyName) \
+	Serializer->DisablePropertySerialization(FAssetTypeSerializerMacros_Internals::GetStaticStructOrClass<Class>(), PropertyName);
 
 #define OVERRIDE_SERIALIZATION(Class, PropertyName, SerializerBody) \
 	Serializer->SetCustomSerializer(FAssetTypeSerializerMacros_Internals::GetStaticStructOrClass<Class>(), GET_MEMBER_NAME_CHECKED(Class, PropertyName), \

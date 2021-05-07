@@ -243,7 +243,7 @@ TSharedRef<SVerticalBox> SAssetDumperWidget::CreateSettingsCategory() {
         +SHorizontalBox::Slot().FillWidth(1.0f).HAlign(HAlign_Fill).VAlign(VAlign_Center)[
         	SNew(SSlider)
         	.StepSize(1)
-        	.MaxValue(FPlatformMisc::NumberOfCoresIncludingHyperthreads())
+        	.MaxValue(FPlatformMisc::NumberOfCoresIncludingHyperthreads() * 2)
         	.MinValue(1)
         	.Value(AssetDumpSettings.MaxPackagesToProcessInOneTick)
         	.ToolTipText(LOCTEXT("AssetDumper_Settings_MaxPackagesTick_Tooltip", "Specifies maximum number of packages to be processed in one tick."))

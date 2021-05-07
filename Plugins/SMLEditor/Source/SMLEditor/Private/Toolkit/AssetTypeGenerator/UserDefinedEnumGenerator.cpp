@@ -4,21 +4,21 @@
 
 UPackage* UUserDefinedEnumGenerator::CreateAssetPackage() {
 	UPackage* NewPackage = CreatePackage(NULL, *GetPackageName().ToString());
-	UEnum* NewEnum = NewObject<UUserDefinedEnum>(NewPackage, GetAssetName(), RF_Public | RF_Standalone);
+	UUserDefinedEnum* NewEnum = NewObject<UUserDefinedEnum>(NewPackage, GetAssetName(), RF_Public | RF_Standalone);
 
 	TArray<TPair<FName, int64>> EmptyNames;
 	NewEnum->SetEnums(EmptyNames, UEnum::ECppForm::Namespaced);
 	NewEnum->SetMetaData(TEXT("BlueprintType"), TEXT("true"));
 	
-	PopulateEnumWithData(CastChecked<UUserDefinedEnum>(NewEnum));
+	PopulateEnumWithData(NewEnum);
 	return NewPackage;
 }
 
 void UUserDefinedEnumGenerator::OnExistingPackageLoaded() {
-	UUserDefinedEnum* ExistingEnum = FindObjectChecked<UUserDefinedEnum>(GetAssetPackage(), *GetAssetName().ToString());
+	UUserDefinedEnum* ExistingEnum = GetAsset<UUserDefinedEnum>();
 
 	if (!IsEnumerationUpToDate(ExistingEnum)) {
-		UE_LOG(LogAssetGenerator, Display, TEXT("User Defined Enumeration %s is not up to date, regenerating data"), *ExistingEnum->GetPathName());
+		UE_LOG(LogAssetGenerator, Display, TEXT("UserDefinedEnum %s is not up to date, regenerating data"), *ExistingEnum->GetPathName());
 		
 		//Wipe any existing data from the enumeration
 		TArray<TPair<FName, int64>> EmptyNames;
@@ -44,7 +44,8 @@ void UUserDefinedEnumGenerator::PopulateEnumWithData(UUserDefinedEnum* Enum) {
 		const FString Name = PairObject->GetStringField(TEXT("Name"));
 		const int64 Value = PairObject->GetIntegerField(TEXT("Value"));
 
-		ResultEnumNames.Add(TPair<FName, int64>(Name, Value));
+		const FString NewFullName = Enum->GenerateFullEnumName(*Name);
+		ResultEnumNames.Add(TPair<FName, int64>(NewFullName, Value));
 	}
 	
 	Enum->SetEnums(ResultEnumNames, UEnum::ECppForm::Namespaced, true);
@@ -58,6 +59,8 @@ void UUserDefinedEnumGenerator::PopulateEnumWithData(UUserDefinedEnum* Enum) {
 
 		Enum->DisplayNameMap.Add(Name, FText::FromString(DisplayName));
 	}
+
+	MarkAssetChanged();
 }
 
 bool UUserDefinedEnumGenerator::IsEnumerationUpToDate(UUserDefinedEnum* Enum) const {
@@ -75,7 +78,7 @@ bool UUserDefinedEnumGenerator::IsEnumerationUpToDate(UUserDefinedEnum* Enum) co
 		const int64 Value = PairObject->GetIntegerField(TEXT("Value"));
 
 		const int64 ExistingValue = Enum->GetValueByIndex(i);
-		const FString ExistingName = Enum->GetNameByIndex(i).ToString();
+		const FString ExistingName = Enum->GetNameStringByIndex(i);
 		if (ExistingName != Name || ExistingValue != Value) {
 			return false;
 		}
@@ -83,10 +86,11 @@ bool UUserDefinedEnumGenerator::IsEnumerationUpToDate(UUserDefinedEnum* Enum) co
 
 	for (const TSharedPtr<FJsonValue>& NamePair : DisplayNames) {
 		const TSharedPtr<FJsonObject> PairObject = NamePair->AsObject();
-		const FName Name = FName(*PairObject->GetStringField(TEXT("Name")));
+		const FString Name = PairObject->GetStringField(TEXT("Name"));
 		const FString DisplayName = PairObject->GetStringField(TEXT("DisplayName"));
 
-		const FText* ExistingDisplayName = Enum->DisplayNameMap.Find(Name);
+		const FText* ExistingDisplayName = Enum->DisplayNameMap.Find(*Name);
+		
 		if (ExistingDisplayName == NULL ||
 			ExistingDisplayName->ToString() != DisplayName) {
 			return false;

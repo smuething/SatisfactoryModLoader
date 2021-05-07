@@ -1,5 +1,4 @@
 #include "Toolkit/AssetTypes/TextureAssetSerializer.h"
-#include "Toolkit/AssetTypes/AssetHelper.h"
 #include "IImageWrapperModule.h"
 #include "Modules/ModuleManager.h"
 #include "Engine/Texture2D.h"
@@ -7,6 +6,7 @@
 #include "IImageWrapper.h"
 #include "Dom/JsonObject.h"
 #include "Toolkit/ObjectHierarchySerializer.h"
+#include "Toolkit/PropertySerializer.h"
 #include "Toolkit/AssetDumping/AssetTypeSerializerMacros.h"
 #include "Toolkit/AssetDumping/SerializationContext.h"
 
@@ -80,6 +80,11 @@ void UTextureAssetSerializer::SerializeTextureData(const FString& ContextString,
         ClearAlphaFromBGRA8Texture(OutDecompressedData.GetData(), TotalPixelsWithSlices);
     }
 
+	//Write hash of the source texture filename so asset generator can easily figure out whenever refresh is needed
+	FString Hash = FMD5::HashBytes(OutDecompressedData.GetData(), OutDecompressedData.Num() * sizeof(uint8));
+	Hash.Append(FString::Printf(TEXT("%x"), OutDecompressedData.Num()));
+	Data->SetStringField(TEXT("SourceImageHash"), Hash);
+
     //Save data in PNG format and store bytes in serialization context
     IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
     TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
@@ -96,6 +101,12 @@ void UTextureAssetSerializer::SerializeTextureData(const FString& ContextString,
 
 void UTextureAssetSerializer::SerializeTexture2D(UTexture2D* Asset, TSharedPtr<FJsonObject> Data, TSharedRef<FSerializationContext> Context, const FString& Postfix) {
     UObjectHierarchySerializer* ObjectSerializer = Context->GetObjectSerializer();
+	UPropertySerializer* Serializer = ObjectSerializer->GetPropertySerializer();
+	
+	DISABLE_SERIALIZATION_RAW(UTexture2D, TEXT("LightingGuid"));
+	DISABLE_SERIALIZATION_RAW(UTexture2D, TEXT("ImportedSize"));
+	DISABLE_SERIALIZATION(UTexture2D, FirstResourceMemMip);
+	
     SERIALIZE_ASSET_OBJECT
     SerializeTextureData(Asset->GetPathName(), Asset->PlatformData, Data, Context, false, Postfix);   
 }

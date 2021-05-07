@@ -145,7 +145,7 @@ TSharedRef<FJsonObject> UObjectHierarchySerializer::SerializeObjectProperties(UO
 
 void UObjectHierarchySerializer::SerializeObjectPropertiesIntoObject(UObject* Object, TSharedPtr<FJsonObject> Properties) {
     UClass* ObjectClass = Object->GetClass();
-    for (UProperty* Property = ObjectClass->PropertyLink; Property; Property = Property->PropertyLinkNext) {
+    for (FProperty* Property = ObjectClass->PropertyLink; Property; Property = Property->PropertyLinkNext) {
         if (PropertySerializer->ShouldSerializeProperty(Property)) {
             const void* PropertyValue = Property->ContainerPtrToValuePtr<void>(Object);
             TSharedRef<FJsonValue> PropertyValueJson = PropertySerializer->SerializePropertyValue(Property, PropertyValue);
@@ -156,7 +156,7 @@ void UObjectHierarchySerializer::SerializeObjectPropertiesIntoObject(UObject* Ob
 
 void UObjectHierarchySerializer::DeserializeObjectProperties(const TSharedRef<FJsonObject>& Properties, UObject* Object) {
     UClass* ObjectClass = Object->GetClass();
-    for (UProperty* Property = ObjectClass->PropertyLink; Property; Property = Property->PropertyLinkNext) {
+    for (FProperty* Property = ObjectClass->PropertyLink; Property; Property = Property->PropertyLinkNext) {
         const FString PropertyName = Property->GetName();
         if (PropertySerializer->ShouldSerializeProperty(Property) && Properties->HasField(PropertyName)) {
             void* PropertyValue = Property->ContainerPtrToValuePtr<void>(Object);
@@ -177,6 +177,73 @@ TArray<TSharedPtr<FJsonValue>> UObjectHierarchySerializer::FinalizeSerialization
         ObjectsArray.Add(MakeShareable(new FJsonValueObject(SerializedObjects.FindChecked(i))));
     }
     return ObjectsArray;
+}
+
+void UObjectHierarchySerializer::CollectReferencedPackages(TArray<FString>& OutReferencedPackageNames) {
+    for (const TPair<int32, TSharedPtr<FJsonObject>>& Pair : SerializedObjects) {
+        const TSharedPtr<FJsonObject> Object = Pair.Value;
+        if (Object->GetStringField(TEXT("Type")) == TEXT("Import")) {
+            //Thing is, class types should ALWAYS be native and defined in /Script/ packages,
+            //so we save a lot of time on asset generator side by simply skipping them altogether if they are represented by script package
+            const FString ClassPackage = Object->GetStringField(TEXT("ClassPackage"));
+            if (!ClassPackage.StartsWith(TEXT("/Script/"))) {
+                OutReferencedPackageNames.Add(ClassPackage);
+            }
+
+            //This is the most important case, absent outer describes imported UPackage package name
+            if (!Object->HasField(TEXT("Outer"))) {
+                const FString PackageName = Object->GetStringField(TEXT("ObjectName"));
+                OutReferencedPackageNames.Add(PackageName);
+            }
+        }
+    }
+}
+
+void UObjectHierarchySerializer::CollectObjectPackages(const int32 ObjectIndex, TArray<FString>& OutReferencedPackageNames) {
+    if (ObjectIndex == INDEX_NONE) {
+        return;
+    }
+
+    const TSharedPtr<FJsonObject> Object = SerializedObjects.FindChecked(ObjectIndex);
+    const FString ObjectType = Object->GetStringField(TEXT("Type"));
+    
+    if (ObjectType == TEXT("Import")) {
+        const FString ClassPackage = Object->GetStringField(TEXT("ClassPackage"));
+        if (!ClassPackage.StartsWith(TEXT("/Script/"))) {
+            OutReferencedPackageNames.Add(ClassPackage);
+        }
+
+        if (Object->HasField(TEXT("Outer"))) {
+            const int32 OuterObjectIndex = Object->GetIntegerField(TEXT("Outer"));
+            CollectObjectPackages(OuterObjectIndex, OutReferencedPackageNames);
+        } else {
+            const FString PackageName = Object->GetStringField(TEXT("ObjectName"));
+            OutReferencedPackageNames.Add(PackageName);
+        }
+
+    } else if (ObjectType == TEXT("Export")) {
+        if (Object->HasField(TEXT("ObjectMark"))) {
+            return;
+        }
+
+        const int32 ObjectClassIndex = Object->GetIntegerField(TEXT("ObjectClass"));
+        CollectObjectPackages(ObjectClassIndex, OutReferencedPackageNames);
+
+        if (Object->HasField(TEXT("Outer"))) {
+            const int32 OuterObjectIndex = Object->GetIntegerField(TEXT("Outer"));
+            CollectObjectPackages(OuterObjectIndex, OutReferencedPackageNames);
+        }
+
+        if (Object->HasField(TEXT("Properties"))) {
+            const TSharedPtr<FJsonObject> Properties = Object->GetObjectField(TEXT("Properties"));
+
+            //TODO this is a bit difficult, I'm not sure what the correct handling would be
+            //TODO probably separation of this method into 2 stages, one for class object and outer,
+            //TODO and other for class properties specifically. Because we pretty much need to load object class
+            //TODO at this point to decipher properties object data. For now, we crash here until it's resolved
+            checkf(0, TEXT("Reference Collection on Exported Object Properties is not supported yet"));
+        }
+    }
 }
 
 UObject* UObjectHierarchySerializer::DeserializeExportedObject(TSharedPtr<FJsonObject> ObjectJson) {

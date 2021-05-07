@@ -2,6 +2,8 @@
 #include "CoreMinimal.h"
 #include "Tickable.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogAssetDumper, Log, All);
+
 /** Holds asset dumping related settings */
 struct SML_API FAssetDumpSettings {
 	FString RootDumpDirectory;
@@ -11,6 +13,7 @@ struct SML_API FAssetDumpSettings {
 	bool bForceSingleThread;
 	bool bOverwriteExistingAssets;
 	bool bExitOnFinish;
+	float GarbageCollectionInterval;
 
 	/** Default settings for asset dumping */
 	FAssetDumpSettings();
@@ -40,6 +43,7 @@ private:
 	FThreadSafeCounter PackagesProcessed;
 	FAssetDumpSettings Settings;
 	bool bHasFinishedDumping;
+	float TimeSinceGarbageCollection;
 	
 	explicit FAssetDumpProcessor(const FAssetDumpSettings& Settings, const TArray<FAssetData>& InAssets);
 	explicit FAssetDumpProcessor(const FAssetDumpSettings& Settings, const TMap<FName, FAssetData>& InAssets);

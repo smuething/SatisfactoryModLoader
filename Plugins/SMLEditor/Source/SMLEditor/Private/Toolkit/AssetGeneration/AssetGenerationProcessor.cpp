@@ -107,6 +107,13 @@ FAssetGeneratorConfiguration::FAssetGeneratorConfiguration() :
 		bRefreshExistingAssets(true) {
 }
 
+FAssetGenStatistics::FAssetGenStatistics() {
+	this->AssetPackagesGenerated = 0;
+	this->AssetPackagesRefreshed = 0;
+	this->AssetPackagesUpToDate = 0;
+	this->TotalAssetPackages = 0;
+}
+
 void FAssetGenerationProcessor::InitializeAssetGeneratorInternal(UAssetTypeGenerator* Generator) {
 	UE_LOG(LogAssetGenerator, Log, TEXT("Started asset generation: %s"), *Generator->GetPackageName().ToString());
 	
@@ -137,6 +144,9 @@ void FAssetGenerationProcessor::CleanupAssetGenerator(UAssetTypeGenerator* Gener
 	//Remove ourselves from the collection of asset generators, mark package as generated
 	this->AssetGenerators.Remove(Generator->GetPackageName());
 	this->AlreadyGeneratedPackages.Add(Generator->GetPackageName());
+
+	//Add asset generator into our statistics
+	TrackAssetGeneratorStatistics(Generator);
 	
 	//Unroot asset generator, we don't need it anymore
 	Generator->RemoveFromRoot();
@@ -246,13 +256,20 @@ void FAssetGenerationProcessor::OnAssetGenerationStarted() {
 
 void FAssetGenerationProcessor::OnAssetGenerationFinished() {
 	this->bGenerationFinished = true;
-	UE_LOG(LogAssetGenerator, Log, TEXT("Asset generation finished successfully, %d packages were generated/refreshed"), PackagesToGenerate.Num());
+	UE_LOG(LogAssetGenerator, Log, TEXT("Asset generation finished successfully, %d packages generated, %d packages refreshed, %d up-to-date"),
+		Statistics.AssetPackagesGenerated, Statistics.AssetPackagesRefreshed, Statistics.AssetPackagesUpToDate);
 
 	if (NotificationItem.IsValid()) {
 		FFormatNamedArguments Arguments;
-		Arguments.Add(TEXT("AssetsGenerated"), GetPackagesGenerated());
-		this->NotificationItem->SetText(FText::Format(LOCTEXT("AssetGenerator_Finished", "Asset Generation Finished, {AssetsGenerated} Assets Generated"), Arguments));
-		this->NotificationItem->SetExpireDuration(10.0f);
+		Arguments.Add(TEXT("TotalAssets"), Statistics.TotalAssetPackages);
+		Arguments.Add(TEXT("AssetsGenerated"), Statistics.AssetPackagesGenerated);
+		Arguments.Add(TEXT("AssetsRefreshed"), Statistics.AssetPackagesRefreshed);
+		Arguments.Add(TEXT("AssetsUpToDate"), Statistics.AssetPackagesUpToDate);
+		
+		this->NotificationItem->SetText(FText::Format(LOCTEXT("AssetGenerator_Finished", "Asset Generation Finished: {AssetsGenerated} Assets Generated, "
+			"{AssetsRefreshed} Assets Refreshed, {AssetsUpToDate} Assets Up-To-Date"), Arguments));
+		
+		this->NotificationItem->SetExpireDuration(15.0f);
 		this->NotificationItem->SetCompletionState(SNotificationItem::CS_Success);
 		this->NotificationItem->ExpireAndFadeout();
 		this->NotificationItem.Reset();
@@ -262,14 +279,31 @@ void FAssetGenerationProcessor::OnAssetGenerationFinished() {
 void FAssetGenerationProcessor::UpdateNotificationItem() {
 	if (NotificationItem.IsValid()) {
 		FFormatNamedArguments Arguments;
-		Arguments.Add(TEXT("PackagesGenerated"), GetPackagesGenerated());
-		Arguments.Add(TEXT("TotalPackages"), GetTotalPackages());
-		Arguments.Add(TEXT("PackagesInProgress"), GetPackagesGeneratedCurrently());
-		Arguments.Add(TEXT("ProgressPercent"), FMath::RoundToInt(GetPackagesGenerated() / (GetTotalPackages() * 1.0f) * 100.0f));
+		const int32 PackagesGenerated = Statistics.AssetPackagesGenerated + Statistics.AssetPackagesRefreshed;
+		const int32 TotalPackages = Statistics.TotalAssetPackages;
+		const int32 PackagesSkipped = Statistics.AssetPackagesUpToDate;
+		
+		Arguments.Add(TEXT("PackagesGenerated"), PackagesGenerated);
+		Arguments.Add(TEXT("TotalPackages"), TotalPackages);
+		Arguments.Add(TEXT("PackagesSkipped"), PackagesSkipped);
+		Arguments.Add(TEXT("PackagesInProgress"), AssetGenerators.Num());
+		Arguments.Add(TEXT("ProgressPercent"), FMath::RoundToInt(PackagesGenerated / (TotalPackages * 1.0f) * 100.0f));
 
 		NotificationItem->SetText(FText::Format(LOCTEXT("AssetGenerator_Progress",
-			"Asset Generation In Progress: {PackagesGenerated}/{TotalPackages} packages, "
+			"Asset Generation In Progress: {PackagesGenerated}/{TotalPackages} packages, {PackagesSkipped} skipped, "
 			"{ProgressPercent}% done, {PackagesInProgress} generating currently"), Arguments));
+	}
+}
+
+void FAssetGenerationProcessor::TrackAssetGeneratorStatistics(UAssetTypeGenerator* Generator) {
+	if (Generator->IsUsingExistingPackage()) {
+		if (Generator->HasAssetBeenEverChanged()) {
+			this->Statistics.AssetPackagesRefreshed++;
+		} else {
+			this->Statistics.AssetPackagesUpToDate++;
+		}
+	} else {
+		this->Statistics.AssetPackagesGenerated++;
 	}
 }
 
@@ -331,6 +365,7 @@ FAssetGenerationProcessor::FAssetGenerationProcessor(const FAssetGeneratorConfig
 	this->NextPackageToGenerateIndex = 0;
 	this->bGenerationFinished = false;
 	this->bIsFirstTick = true;
+	this->Statistics.TotalAssetPackages = PackagesToGenerate.Num();
 }
 
 TSharedRef<FAssetGenerationProcessor> FAssetGenerationProcessor::CreateAssetGenerator(const FAssetGeneratorConfiguration& Configuration, const TArray<FName>& PackagesToGenerate) {

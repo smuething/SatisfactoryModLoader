@@ -24,6 +24,7 @@ private:
 	FAssetData AssetData;
 	/** Package we are loading */
 	UPackage* Package;
+	UObject* AssetObject;
 
 	/** Property serializer handling serialization of object properties */
 	UPropertySerializer* PropertySerializer;
@@ -84,37 +85,8 @@ public:
 	template<typename T>
 	T* GetAsset() const {
 		//Make sure we are not trying to retrieve a blueprint, because it's a pretty common source of errors
-		checkf(!T::StaticClass()->IsChildOf(UBlueprint::StaticClass()), TEXT("Cannot access 'Blueprint' asset object in cooked data as it has been stripped. Use GetBlueprintAsset instead."));
-		
-		//Retrieve asset object and make sure cast is successful
-		T* AssetObject = FindObject<T>(Package, *AssetData.AssetName.ToString());
-		checkf(AssetObject, TEXT("Failed to find Asset %s inside of the package %s"), *AssetData.AssetName.ToString(), *AssetData.PackageName.ToString());
-		return AssetObject;
-	}
-
-	/** Retrieves blueprint generated class if current asset represents a blueprint. Use this instead of GetAsset for blueprint */
-	template<typename T = UBlueprintGeneratedClass>
-	T* GetBlueprintAsset() const {
-		//Make sure argument we received actually makes sense
-		check(T::StaticClass()->IsChildOf(UBlueprintGeneratedClass::StaticClass()));
-		
-		//Retrieve GeneratedClass tag containing a text path to generated class object
-		//All blueprints have it set, so if GetTagValue returns false, we are dealing with non-blueprint asset
-		FString GeneratedClassExportedPath;
-		if (!AssetData.GetTagValue(FBlueprintTags::GeneratedClassPath, GeneratedClassExportedPath)) {
-			checkf(0, TEXT("GetBlueprintAsset called on non-blueprint asset"));
-			return NULL;
-		}
-		
-		//Make sure export path represents a valid path and convert it to pure object path
-		FString GeneratedClassPath;
-		check(FPackageName::ParseExportTextPath(GeneratedClassExportedPath, NULL, &GeneratedClassPath));
-		const FString BlueprintClassObjectName = FPackageName::ObjectPathToObjectName(GeneratedClassPath);
-
-		//Load UBlueprintGeneratedClass for provided object and make sure it has been loaded
-		T* ClassObject = FindObject<T>(Package, *BlueprintClassObjectName);
-		checkf(ClassObject, TEXT("Failed to find Generated Class %s inside of the package %s"), *BlueprintClassObjectName, *AssetData.PackageName.ToString());
-		return ClassObject;
+		checkf(!T::StaticClass()->IsChildOf(UBlueprint::StaticClass()), TEXT("Cannot access 'Blueprint' asset object in cooked data as it has been stripped. Asset is a 'BlueprintGeneratedClass' object instead."));
+		return CastChecked<T>(AssetObject);
 	}
 
 	/** Returns file path for the dump output file with provided postfix (can be empty) and extension. File is placed in the base asset directory */

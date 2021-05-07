@@ -2,14 +2,14 @@
 const fs = require("fs");
 const path = require("path");
 
-if (process.argv.length < 4) {
-    console.error("Usage: node automation.js <SatisfactoryPath> <ModLoaderRootPath> [...ModList]");
+if (process.argv.length < 3) {
+    console.error("Usage: node automation.js <SatisfactoryPath> <...ModList>");
     process.exit(1);
 }
 
+const ModLoaderRootPath = process.cwd()
 const SatisfactoryPath = process.argv[2];
-const ModLoaderRootPath = process.argv[3];
-const ModList = process.argv.slice(4);
+const ModList = process.argv.slice(3);
 
 console.log(`SF Root: ${SatisfactoryPath} ModLoader Root: ${ModLoaderRootPath} Mod List: ${ModList.join(", ")}`);
 
@@ -30,9 +30,8 @@ function CopyFileAndLog(SourceFilePath, DestinationFolder) {
 let ModsCopied = 0;
 
 for (let ModId of ModList) {
-    let FolderName = ModId === "SML" ? "loaders" : "mods";
-    let SourceFilePathBase = `${ModLoaderRootPath}/Binaries/Win64/UE4-${ModId}-Win64-Shipping`;
-    let DestinationFolder = `${SatisfactoryPath}/${FolderName}`;
+    let SourceFilePathBase = `${ModLoaderRootPath}/Plugins/${ModId}/Binaries/Win64/FactoryGame-${ModId}-Win64-Shipping`;
+    let DestinationFolder = `${SatisfactoryPath}/FactoryGame/Mods/${ModId}/Binaries/Win64`;
     if (CopyFileAndLog(`${SourceFilePathBase}.dll`, DestinationFolder)) {
         CopyFileAndLog(`${SourceFilePathBase}.pdb`, DestinationFolder);
         ModsCopied++;

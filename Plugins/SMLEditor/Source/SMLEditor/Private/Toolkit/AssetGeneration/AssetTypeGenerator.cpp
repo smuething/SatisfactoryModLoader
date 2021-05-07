@@ -5,6 +5,20 @@
 
 DEFINE_LOG_CATEGORY(LogAssetGenerator)
 
+FString UAssetTypeGenerator::GetAdditionalDumpFilePath(const FString& Postfix, const FString& Extension) {
+	FString Filename = FPackageName::GetShortName(GetPackageName());
+		
+	if (Postfix.Len() > 0) {
+		Filename.AppendChar('-').Append(Postfix);
+	}
+	if (Extension.Len() > 0) {
+		if (Extension[0] != '.')
+			Filename.AppendChar('.');
+		Filename.Append(Extension);
+	}
+	return FPaths::Combine(PackageBaseDirectory, Filename);
+}
+
 UAssetTypeGenerator::UAssetTypeGenerator() {
 	this->PropertySerializer = CreateDefaultSubobject<UPropertySerializer>(TEXT("PropertySerializer"));
 	this->ObjectSerializer = CreateDefaultSubobject<UObjectHierarchySerializer>(TEXT("ObjectSerializer"));
@@ -14,11 +28,13 @@ UAssetTypeGenerator::UAssetTypeGenerator() {
 	this->AssetPackage = NULL;
 	this->AssetObject = NULL;
 	this->bUsingExistingPackage = false;
+	this->bAssetChanged = false;
+	this->bHasAssetEverBeenChanged = false;
 }
 
 void UAssetTypeGenerator::InitializeInternal(const FString& InPackageBaseDirectory, const FName InPackageName, const TSharedPtr<FJsonObject> RootFileObject) {
 	this->PackageBaseDirectory = InPackageBaseDirectory;
-	this->PackageName = FName(*RootFileObject->GetStringField(TEXT("PackageName")));
+	this->PackageName = FName(*RootFileObject->GetStringField(TEXT("AssetPackage")));
 	this->AssetName = FName(*RootFileObject->GetStringField(TEXT("AssetName")));
 	checkf(this->PackageName == InPackageName, TEXT("InitializeInternal called with inconsistent package name. Externally provided name was '%s', but internal dump package name is '%s'"),
 		*InPackageName.ToString(), *this->PackageName.ToString());
@@ -36,17 +52,23 @@ EAssetGenerationStage UAssetTypeGenerator::AdvanceGenerationState() {
 			this->AssetPackage = CreateAssetPackage();
 			this->AssetObject = FindObjectChecked<UObject>(AssetPackage, *AssetName.ToString());
 
-			//Save package to filesystem so it will be exist not only in memory, but also on the disk
-			FEditorFileUtils::PromptForCheckoutAndSave({AssetPackage}, false, false);
+			ObjectSerializer->SetPackageForDeserialization(AssetPackage);
+			ObjectSerializer->SetObjectMark(AssetObject, TEXT("$AssetObject$"));
 
+			//Make sure to mark package as changed because it has never been saved to disk before
+			MarkAssetChanged();
 		} else {
 			//Package already exist, reuse it while making sure out asset is contained within
 			this->AssetPackage = ExistingPackage;
 			this->AssetObject = FindObject<UObject>(AssetPackage, *AssetName.ToString());
+			ObjectSerializer->SetPackageForDeserialization(AssetPackage);
 
 			//We need to verify package exists and provide meaningful error message, so user knows what is wrong
 			checkf(AssetObject, TEXT("Existing package %s does not contain an asset named %s, requested by asset dump"), *PackageName.ToString(), *AssetName.ToString());
 
+			ObjectSerializer->SetPackageForDeserialization(AssetPackage);
+			ObjectSerializer->SetObjectMark(AssetObject, TEXT("$AssetObject$"));
+			
 			//Notify generator we are reusing existing package, so it can do additional cleanup and settings
 			this->bUsingExistingPackage = true;
 			OnExistingPackageLoaded();
@@ -59,29 +81,30 @@ EAssetGenerationStage UAssetTypeGenerator::AdvanceGenerationState() {
 	if (CurrentStage == EAssetGenerationStage::DATA_POPULATION) {
 		this->PopulateAssetWithData();
 		this->CurrentStage = EAssetGenerationStage::CDO_FINALIZATION;
-
-		//Save asset with the populated data into filesystem, but only if it's dirty
-		//Since we can handle existing packages, sometimes there simply won't be any changes to assets, in which case we do not want to re-save them
-		FEditorFileUtils::PromptForCheckoutAndSave({AssetPackage}, true, false);
 	}
 
 	if (CurrentStage == EAssetGenerationStage::CDO_FINALIZATION) {
 		this->FinalizeAssetCDO();
 		this->CurrentStage = EAssetGenerationStage::FINISHED;
-
-		//Save asset with the populated data into filesystem, but only if it's dirty. Most assets do not use CDO Finalization Stage at all.
-		FEditorFileUtils::PromptForCheckoutAndSave({AssetPackage}, true, false);
 	}
 
+	//Force package to be saved to disk if it has been marked dirty at some point before
+	if (bAssetChanged) {
+		FEditorFileUtils::PromptForCheckoutAndSave({AssetPackage}, false, false);
+		this->bAssetChanged = false;
+		this->bHasAssetEverBeenChanged = true;
+	}
+	
 	return CurrentStage;
 }
 
 UAssetTypeGenerator* UAssetTypeGenerator::InitializeFromFile(const FString& RootDirectory, const FName PackageName) {
 	const FString ShortPackageName = FPackageName::GetShortName(PackageName);
-	const FString PackagePath = FPackageName::GetLongPackagePath(PackageName.ToString());
+	FString PackagePath = FPackageName::GetLongPackagePath(PackageName.ToString());
+	PackagePath.RemoveAt(0);
 
 	const FString PackageBaseDirectory = FPaths::Combine(RootDirectory, PackagePath);
-
+	
 	const FString AssetDumpFilename = FPaths::SetExtension(ShortPackageName, TEXT("json"));
 	const FString AssetDumpFilePath = FPaths::Combine(PackageBaseDirectory, AssetDumpFilename);
 

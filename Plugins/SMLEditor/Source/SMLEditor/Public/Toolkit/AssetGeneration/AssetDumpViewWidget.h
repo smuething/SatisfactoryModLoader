@@ -13,13 +13,17 @@ public:
 	FString PackageName;
 	/** Last fragment of the path, representing package short name */
 	FString NodeName;
-
+	
 	FAssetDumpTreeNode();
 private:
 	/** True if this asset and all underlying assets are to be generated */
 	bool bIsChecked;
 	/** True if our state has been explicitly overriden by the user and we should be listed as a manual override */
 	bool bIsOverridingParentState;
+	/** Asset class if it's relevant for this node */
+	FString AssetClass;
+	/** True if we have already computed asset class */
+	bool bAssetClassComputed;
 	
 	/** True when children nodes have already been initialized */
 	bool bChildrenNodesInitialized;
@@ -28,8 +32,11 @@ private:
 	
     void RegenerateChildren();
 	TSharedPtr<FAssetDumpTreeNode> MakeChildNode();
+	FString ComputeAssetClass();
 public:
 	void SetupPackageNameFromDiskPath();
+
+	FString GetOrComputeAssetClass();
 
 	FORCEINLINE bool IsChecked() const { return bIsChecked; }
 
@@ -43,7 +50,7 @@ public:
 	void PopulateGeneratedPackages(TArray<FName>& OutPackageNames);
 };
 
-class SML_API SAssetDumpViewWidget : public SCompoundWidget {
+class SMLEDITOR_API SAssetDumpViewWidget : public SCompoundWidget {
 public:
 	SLATE_BEGIN_ARGS(SAssetDumpViewWidget) {}
 	SLATE_END_ARGS()
@@ -52,9 +59,20 @@ public:
 	void SetAssetDumpRootDirectory(const FString& RootDirectory);
 	void PopulateSelectedPackages(TArray<FName>& OutPackageNames) const;
 protected:
+	TSharedPtr<STreeView<TSharedPtr<FAssetDumpTreeNode>>> TreeView;
 	TSharedPtr<FAssetDumpTreeNode> RootNode;
 	TArray<TSharedPtr<FAssetDumpTreeNode>> RootAssetPaths;
 	
 	TSharedRef<class ITableRow> OnCreateRow(const TSharedPtr<FAssetDumpTreeNode> TreeNode, const TSharedRef<STableViewBase>& Owner) const;
 	void GetNodeChildren(const TSharedPtr<FAssetDumpTreeNode> TreeNode, TArray<TSharedPtr<FAssetDumpTreeNode>>& OutChildren) const;
+};
+
+class SMLEDITOR_API SAssetDumpTreeNodeRow : public SMultiColumnTableRow<TSharedPtr<FAssetDumpTreeNode>> {
+	SLATE_BEGIN_ARGS(SAssetDumpTreeNodeRow) {}
+	SLATE_END_ARGS()
+public:
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& OwnerTable, const TSharedPtr<FAssetDumpTreeNode>& TreeNodeArg);
+	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& InColumnName) override;
+private:
+	TSharedPtr<FAssetDumpTreeNode> TreeNode;
 };

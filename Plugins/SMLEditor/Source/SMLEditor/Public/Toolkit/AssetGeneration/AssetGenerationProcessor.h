@@ -28,6 +28,23 @@ public:
 	FAssetGeneratorConfiguration();
 };
 
+struct SMLEDITOR_API FAssetGenStatistics {
+public:
+	/** Amount of new asset packages generated */
+	int32 AssetPackagesGenerated;
+	
+	/** Amount of refreshed asset packages */
+	int32 AssetPackagesRefreshed;
+	
+	/** Amount of asset packages that were up to date */
+	int32 AssetPackagesUpToDate;
+
+	/** Total asset packages involved in generation */
+	int32 TotalAssetPackages;
+
+	FAssetGenStatistics();
+};
+
 /**
  * Asset generation processor manages asset generation process for the selected group of the assets
  * It generates one asset at a time, going through multiple stages and possibly satisfying generation
@@ -60,6 +77,8 @@ private:
 	bool bGenerationFinished;
 	/** True if next tick is gonna be first one */
 	bool bIsFirstTick;
+	/** Statics for current asset generation process */
+	FAssetGenStatistics Statistics;
 	/** Notification shown to indicate asset generation progress */
 	TSharedPtr<SNotificationItem> NotificationItem;
 
@@ -89,14 +108,14 @@ private:
 	void OnAssetGenerationStarted();
 	/** Updates notification item state if it's valid */
 	void UpdateNotificationItem();
+	/** Tracks asset generator in statistics */
+	void TrackAssetGeneratorStatistics(UAssetTypeGenerator* Generator);
 
 	/** Internal constructor. Call CreateAssetGenerator(...) instead */
 	FAssetGenerationProcessor(const FAssetGeneratorConfiguration& Configuration, const TArray<FName>& PackagesToGenerate);
 public:
-	FORCEINLINE int32 GetPackagesGenerated() const { return AlreadyGeneratedPackages.Num(); }
-	FORCEINLINE int32 GetTotalPackages() const { return PackagesToGenerate.Num(); }
-	FORCEINLINE int32 GetPackagesGeneratedCurrently() const { return AssetGenerators.Num(); }
 	FORCEINLINE bool HasFinishedAssetGeneration() const { return bGenerationFinished; }
+	FORCEINLINE const FAssetGenStatistics& GetStatistics() const { return Statistics; } 
 	
 	/** Returns currently active instance of the asset generator */
 	FORCEINLINE static TSharedPtr<FAssetGenerationProcessor> GetActiveAssetGenerator() {

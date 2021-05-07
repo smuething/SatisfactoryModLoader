@@ -32,6 +32,8 @@ private:
     TSharedPtr<FJsonObject> AssetData;
 	EAssetGenerationStage CurrentStage;
 	bool bUsingExistingPackage;
+	bool bAssetChanged;
+	bool bHasAssetEverBeenChanged;
 	
 	UPROPERTY()
     UObjectHierarchySerializer* ObjectSerializer;
@@ -45,9 +47,6 @@ private:
 	/** Initializes this asset generator instance with the file data */
 	void InitializeInternal(const FString& PackageBaseDirectory, FName PackageName, TSharedPtr<FJsonObject> RootFileObject);
 protected:
-	/** Returns name of the asset object as it is loaded from the dump */
-	FORCEINLINE FName GetAssetName() const { return AssetName; }
-	FORCEINLINE bool IsUsingExistingPackage() const { return bUsingExistingPackage; }
 	FORCEINLINE TSharedPtr<FJsonObject> GetAssetData() const { return AssetData; }
 	
 	/** Retrieves path to the base directory containing current asset data */
@@ -59,6 +58,11 @@ protected:
 	/** Returns instance of the object hierarchy serializer associated with this package */
 	FORCEINLINE UObjectHierarchySerializer* GetObjectSerializer() const { return ObjectSerializer; }
 
+	/** Marks asset as changed by this generator */
+	FORCEINLINE void MarkAssetChanged() { this->bAssetChanged = true; }
+
+	FString GetAdditionalDumpFilePath(const FString& Postfix, const FString& Extension);
+
 	/** Allocates new package object and asset object inside of it */
 	virtual UPackage* CreateAssetPackage() PURE_VIRTUAL(ConstructAsset, return NULL;);
 	virtual void PopulateAssetWithData() {};
@@ -69,6 +73,13 @@ protected:
 public:
 	UAssetTypeGenerator();
 
+	/** Returns name of the asset object as it is loaded from the dump */
+	FORCEINLINE FName GetAssetName() const { return AssetName; }
+	
+	FORCEINLINE bool IsUsingExistingPackage() const { return bUsingExistingPackage; }
+
+	FORCEINLINE bool HasAssetBeenEverChanged() const { return bHasAssetEverBeenChanged; }
+	
 	/** Returns package name of the asset being generated */
 	FORCEINLINE FName GetPackageName() const { return PackageName; }
 
@@ -77,6 +88,9 @@ public:
 
 	/** Returns asset package created by CreateAssetPackage or loaded from the disk */
 	FORCEINLINE UPackage* GetAssetPackage() const { return AssetPackage; }
+
+	template<typename T>
+	FORCEINLINE T* GetAsset() const { return CastChecked<T>(AssetObject); }
 
 	/** Populates array with the dependencies required to perform current asset generation stage */
 	virtual void PopulateStageDependencies(TArray<FAssetDependency>& OutDependencies) const {}

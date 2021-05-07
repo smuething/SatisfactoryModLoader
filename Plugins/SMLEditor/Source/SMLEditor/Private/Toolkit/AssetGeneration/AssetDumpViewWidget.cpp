@@ -1,11 +1,34 @@
 #include "Toolkit/AssetGeneration/AssetDumpViewWidget.h"
 #include "PackageTools.h"
+#include "Toolkit/AssetGeneration/AssetTypeGenerator.h"
+#define LOCTEXT_NAMESPACE "SML"
+
+FString CollectQuotedString(const FString& SourceString, const int32 StartOffset) {
+	FString ResultString;
+	bool bLastSymbolBackslash = false;
+	
+	for (int32 i = StartOffset; i < SourceString.Len(); i++) {
+		const TCHAR CharAtIndex = SourceString[i];
+		if (bLastSymbolBackslash) {
+			ResultString.AppendChar(CharAtIndex);
+			bLastSymbolBackslash = false;
+		} else if (CharAtIndex == '\\') {
+			bLastSymbolBackslash = true;
+		} else if (CharAtIndex != '"') {
+			ResultString.AppendChar(CharAtIndex);
+		} else {
+			break;
+		}
+	}
+	return ResultString;
+}
 
 FAssetDumpTreeNode::FAssetDumpTreeNode() {
 	this->bIsLeafNode = false;
 	this->bIsChecked = false;
 	this->bIsOverridingParentState = false;
 	this->bChildrenNodesInitialized = false;
+	this->bAssetClassComputed = false;
 }
 
 TSharedPtr<FAssetDumpTreeNode> FAssetDumpTreeNode::MakeChildNode() {
@@ -18,12 +41,43 @@ TSharedPtr<FAssetDumpTreeNode> FAssetDumpTreeNode::MakeChildNode() {
 	return NewNode;
 }
 
+FString FAssetDumpTreeNode::ComputeAssetClass() {
+	if (!bIsLeafNode) {
+		return TEXT("");
+	}
+	
+	FString FileContentsString;
+	if (!FFileHelper::LoadFileToString(FileContentsString, *DiskPackagePath)) {
+		UE_LOG(LogAssetGenerator, Error, TEXT("Failed to load asset dump json file %s"), *DiskPackagePath);
+		return TEXT("Unknown");
+	}
+
+	//Try quick and dirty method that saves us time from parsing JSON fully
+	const FString AssetClassPrefix = TEXT("\"AssetClass\": \"");
+	const int32 AssetClassIndex = FileContentsString.Find(*AssetClassPrefix);
+	if (AssetClassIndex != INDEX_NONE) {
+		return CollectQuotedString(FileContentsString, AssetClassIndex + AssetClassPrefix.Len());
+	}
+	
+	UE_LOG(LogAssetGenerator, Warning, TEXT("Quick AssetClass computation method failed for asset file %s"), *DiskPackagePath);
+
+	//Fallback to heavy json file scanning
+	TSharedPtr<FJsonObject> JsonObject;
+	if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(FileContentsString), JsonObject)) {
+		return JsonObject->GetStringField(TEXT("AssetClass"));
+	}
+
+	UE_LOG(LogAssetGenerator, Error, TEXT("Failed to parse asset dump file %s as valid json"), *DiskPackagePath);
+	return TEXT("Unknown");
+}
+
 void FAssetDumpTreeNode::SetupPackageNameFromDiskPath() {
 	//Remove extension from the file path (all asset dump files are json files)
 	FString PackageNameNew = FPaths::ChangeExtension(DiskPackagePath, TEXT(""));
 	
 	//Make path relative to root directory (e.g D:\ProjectRoot\DumpRoot\Game\FactoryGame\Asset -> Game\FactoryGame\Asset)
-	FPaths::MakePathRelativeTo(PackageNameNew, *RootDirectory);
+	const FString RootDirectorySlash = RootDirectory / TEXT("");
+	FPaths::MakePathRelativeTo(PackageNameNew, *RootDirectorySlash);
 	
 	//Normalize path separators to use / instead of backslashes (Game/FactoryGame/Asset)
 	PackageNameNew.ReplaceInline(TEXT("\\"), TEXT("/"), ESearchCase::CaseSensitive);
@@ -35,7 +89,14 @@ void FAssetDumpTreeNode::SetupPackageNameFromDiskPath() {
 	PackageNameNew = UPackageTools::SanitizePackageName(PackageNameNew);
 
 	this->PackageName = PackageNameNew;
-	this->NodeName = FPackageName::GetShortName(PackageNameNew);
+	this->NodeName = PackageNameNew.Len() > 1 ? FPackageName::GetShortName(PackageNameNew) : PackageNameNew;
+}
+
+FString FAssetDumpTreeNode::GetOrComputeAssetClass() {
+	if (!bAssetClassComputed) {
+		this->AssetClass = ComputeAssetClass();
+	}
+	return AssetClass;
 }
 
 void FAssetDumpTreeNode::RegenerateChildren() {
@@ -131,7 +192,21 @@ void FAssetDumpTreeNode::PopulateGeneratedPackages(TArray<FName>& OutPackageName
 
 void SAssetDumpViewWidget::Construct(const FArguments& InArgs) {
 	ChildSlot[
-        SNew(STreeView<TSharedPtr<FAssetDumpTreeNode>>)
+        SAssignNew(TreeView, STreeView<TSharedPtr<FAssetDumpTreeNode>>)
+        .HeaderRow(SNew(SHeaderRow)
+                    +SHeaderRow::Column(TEXT("ShouldGenerate"))
+                        .DefaultLabel(LOCTEXT("AssetGenerator_ColumnShouldGenerate", "Generate"))
+                        .FixedWidth(70)
+                        .HAlignCell(HAlign_Center)
+                        .HAlignHeader(HAlign_Center)
+                    +SHeaderRow::Column(TEXT("Path"))
+                        .DefaultLabel(LOCTEXT("AssetGenerator_ColumnPath", "Asset Path"))
+                    +SHeaderRow::Column(TEXT("AssetClass"))
+                        .DefaultLabel(LOCTEXT("AssetGenerator_ColumnAssetClass", "Asset Class"))
+                        .FixedWidth(100)
+                        .HAlignCell(HAlign_Left)
+                        .HAlignHeader(HAlign_Center)
+        )
         .SelectionMode(ESelectionMode::None)
         .OnGenerateRow_Raw(this, &SAssetDumpViewWidget::OnCreateRow)
         .OnGetChildren_Raw(this, &SAssetDumpViewWidget::GetNodeChildren)
@@ -148,6 +223,7 @@ void SAssetDumpViewWidget::SetAssetDumpRootDirectory(const FString& RootDirector
 
 	this->RootAssetPaths.Empty();
 	this->RootNode->GetChildrenNodes(RootAssetPaths);
+	this->TreeView->RequestTreeRefresh();
 }
 
 void SAssetDumpViewWidget::PopulateSelectedPackages(TArray<FName>& OutPackageNames) const {
@@ -156,13 +232,42 @@ void SAssetDumpViewWidget::PopulateSelectedPackages(TArray<FName>& OutPackageNam
 
 TSharedRef<ITableRow> SAssetDumpViewWidget::OnCreateRow(const TSharedPtr<FAssetDumpTreeNode> TreeNode,
 	const TSharedRef<STableViewBase>& Owner) const {
-	return SNew(STableRow<TSharedPtr<FAssetDumpTreeNode>>, Owner)
-		.Content()[
-			SNew(STextBlock)
-			.Text(FText::FromString(TreeNode->NodeName))
-		];
+	return SNew(SAssetDumpTreeNodeRow, Owner, TreeNode);
 }
 
 void SAssetDumpViewWidget::GetNodeChildren(const TSharedPtr<FAssetDumpTreeNode> TreeNode, TArray<TSharedPtr<FAssetDumpTreeNode>>& OutChildren) const {
 	TreeNode->GetChildrenNodes(OutChildren);
+}
+
+void SAssetDumpTreeNodeRow::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& OwnerTable, const TSharedPtr<FAssetDumpTreeNode>& TreeNodeArg) {
+	this->TreeNode = TreeNodeArg;
+	FSuperRowType::Construct(FTableRowArgs(), OwnerTable);
+}
+
+TSharedRef<SWidget> SAssetDumpTreeNodeRow::GenerateWidgetForColumn(const FName& InColumnName) {
+	if (InColumnName == TEXT("Path")) {
+		return SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth()[
+            SNew(SExpanderArrow, SharedThis(this))
+        ]
+        +SHorizontalBox::Slot().FillWidth(1.0f)[
+            SNew(STextBlock)
+            .Text(FText::FromString(TreeNode->NodeName))
+        ];
+	}
+	if (InColumnName == TEXT("AssetClass")) {
+		if (TreeNode->bIsLeafNode) {
+			return SNew(STextBlock)
+                .Text(FText::FromString(TreeNode->GetOrComputeAssetClass()));
+		}
+		return SNullWidget::NullWidget;
+	}
+	return SNew(SCheckBox)
+        .IsChecked_Lambda([this]() {
+            return TreeNode->IsChecked() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+        })
+        .OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) {
+            const bool bIsChecked = NewState == ECheckBoxState::Checked;
+            TreeNode->UpdateSelectedState(bIsChecked, false);
+        });
 }

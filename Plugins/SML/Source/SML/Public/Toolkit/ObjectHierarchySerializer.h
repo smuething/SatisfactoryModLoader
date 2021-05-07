@@ -28,6 +28,8 @@ private:
     bool bAllowExportObjectSerialization;
 public:
     UObjectHierarchySerializer();
+
+    FORCEINLINE UPropertySerializer* GetPropertySerializer() const { return PropertySerializer; }
     
     TSharedRef<FJsonObject> SerializeObjectProperties(UObject* Object);
     void SerializeObjectPropertiesIntoObject(UObject* Object, TSharedPtr<FJsonObject> OutObject);
@@ -63,6 +65,10 @@ public:
     int32 SerializeObject(UObject* Object);
     
     TArray<TSharedPtr<FJsonValue>> FinalizeSerialization();
+
+    void CollectReferencedPackages(TArray<FString>& OutReferencedPackageNames);
+
+    void CollectObjectPackages(const int32 ObjectIndex, TArray<FString>& OutReferencedPackageNames);
 
     FORCEINLINE static const TSet<FName>& GetUnhandledNativeClasses() { return UnhandledNativeClasses; }
 private:
