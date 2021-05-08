@@ -34,12 +34,14 @@ private:
 	TSharedPtr<FJsonObject> AssetSerializedData;
 
 	/** Internal constructor */
-	FSerializationContext(const FString& RootOutputDirectory, const FAssetData& AssetData, UPackage* Package);
+	FSerializationContext(const FString& RootOutputDirectory, const FAssetData& AssetData, UObject* AssetObject);
 
 	/** Finalizes serialization by writing resulting JSON file containing object hierarchy and additional information */
 	void Finalize() const;
 public:
 	~FSerializationContext();
+
+	static UObject* GetAssetObjectFromPackage(UPackage* Package, const FAssetData& AssetData);
 	
 	/** The path to the package this asset is located in, with final package name stripped, like /Game/Path */
 	FORCEINLINE FString GetPackagePath() const {

@@ -19,6 +19,14 @@ struct SML_API FAssetDumpSettings {
 	FAssetDumpSettings();
 };
 
+struct FPendingPackageData {
+public:
+	UObject* AssetObject;
+	UPackage* Package;
+	TSharedPtr<class FSerializationContext> SerializationContext;
+	class UAssetTypeSerializer* Serializer;
+};
+
 /**
  * This class is responsible for processing asset dumping request
  * Only one instance of this class can be active at a time
@@ -35,7 +43,7 @@ private:
 	FThreadSafeCounter PackageLoadRequestsInFlyCounter;
 
 	FCriticalSection LoadedPackagesCriticalSection;
-	TArray<UPackage*> LoadedPackages;
+	TArray<FPendingPackageData> LoadedPackages;
 	FThreadSafeCounter PackagesWaitingForProcessing;
 
 	int32 PackagesTotal;
@@ -72,7 +80,8 @@ public:
 	virtual bool IsTickableWhenPaused() const override;
 	//End FTickableGameObject
 protected:
+	bool CreatePackageData(UPackage* Package, FPendingPackageData& PendingPackageData);
 	void InitializeAssetDump();
 	void OnPackageLoaded(const FName& PackageName, UPackage* LoadedPackage, EAsyncLoadingResult::Type Result);
-	void PerformAssetDumpForPackage(UPackage* Package);
+	void PerformAssetDumpForPackage(const FPendingPackageData& PackageData);
 };

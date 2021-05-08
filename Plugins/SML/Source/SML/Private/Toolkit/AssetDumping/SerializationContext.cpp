@@ -1,24 +1,6 @@
 #include "Toolkit/AssetDumping/SerializationContext.h"
 #include "Toolkit/ObjectHierarchySerializer.h"
 #include "Toolkit/PropertySerializer.h"
-#include "Toolkit/AssetDumping/AssetDumpProcessor.h"
-
-UObject* FindObjectFastFailsafe(UPackage* Package, const FString& ObjectName) {
-	//Make sure package is fully loading before trying to retrieve objects from it
-	Package->FullyLoad();
-
-	//Try normal FindObjectFast now that package is loaded
-	UObject* FastResult = FindObjectFast<UObject>(Package, *ObjectName);
-	if (FastResult) {
-		return FastResult;
-	}
-
-	UE_LOG(LogAssetDumper, Error, TEXT("Failed to find Asset Object '%s' inside of the Package '%s'"), *ObjectName, *Package->GetPathName());
-	UE_LOG(LogAssetDumper, Error, TEXT("Package Fully Loaded? %d"), Package->IsFullyLoaded());
-	
-	checkf(0, TEXT("Failed to resolve object '%s' inside of the package '%s'"), *ObjectName, *Package->GetPathName());
-	return NULL;
-}
 
 UObject* ResolveBlueprintClassAsset(UPackage* Package, const FAssetData& AssetData) {
 	FString GeneratedClassExportedPath;
@@ -33,18 +15,14 @@ UObject* ResolveBlueprintClassAsset(UPackage* Package, const FAssetData& AssetDa
 	const FString BlueprintClassObjectName = FPackageName::ObjectPathToObjectName(GeneratedClassPath);
 
 	//Load UBlueprintGeneratedClass for provided object and make sure it has been loaded
-	UObject* ClassObject = FindObjectFastFailsafe(Package, BlueprintClassObjectName);
-	checkf(ClassObject, TEXT("Failed to find Generated Class %s inside of the package %s"), *BlueprintClassObjectName, *Package->GetPathName());
-	return ClassObject;
+	return FindObjectFast<UObject>(Package, *BlueprintClassObjectName);
 }
 
 UObject* ResolveGenericAsset(UPackage* Package, const FAssetData& AssetData) {
-	UObject* AssetObject = FindObjectFastFailsafe(Package, AssetData.AssetName.ToString());
-    checkf(AssetObject, TEXT("Failed to find Asset %s inside of the package %s"), *AssetData.AssetName.ToString(), *Package->GetPathName());
-    return AssetObject;
+	return FindObjectFast<UObject>(Package, *AssetData.AssetName.ToString());
 }
 
-FSerializationContext::FSerializationContext(const FString& RootOutputDirectory, const FAssetData& AssetData, UPackage* Package) {
+FSerializationContext::FSerializationContext(const FString& RootOutputDirectory, const FAssetData& AssetData, UObject* AssetObject) {
 	this->AssetSerializedData = MakeShareable(new FJsonObject());
 	this->PropertySerializer = NewObject<UPropertySerializer>();
 	this->ObjectHierarchySerializer = NewObject<UObjectHierarchySerializer>();
@@ -54,8 +32,9 @@ FSerializationContext::FSerializationContext(const FString& RootOutputDirectory,
 	this->ObjectHierarchySerializer->AddToRoot();
 
 	//Object hierarchy serializer will also root package object by referencing it
+	this->AssetObject = AssetObject;
+	this->Package = AssetObject->GetOutermost();
 	this->ObjectHierarchySerializer->InitializeForSerialization(Package);
-	this->Package = Package;
 	this->AssetData = AssetData;
 
 	this->RootOutputDirectory = RootOutputDirectory;
@@ -64,16 +43,7 @@ FSerializationContext::FSerializationContext(const FString& RootOutputDirectory,
 	//Make sure package base directory exists
 	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*PackageBaseDirectory);
 
-	//Check whenever asset represents a blueprint, then we want to work with blueprint asset specific methods
-	if (AssetData.TagsAndValues.Contains(FBlueprintTags::GeneratedClassPath)) {
-		this->AssetObject = ResolveBlueprintClassAsset(Package, AssetData);
-	} else {
-		//No GeneratedClassPath, it is an ordinary asset object
-		this->AssetObject = ResolveGenericAsset(Package, AssetData);
-	}
-	
 	//Set mark on the asset object so it can be referenced by other objects in hierarchy
-	check(AssetObject);
 	this->ObjectHierarchySerializer->SetObjectMark(AssetObject, TEXT("$AssetObject$"));
 }
 
@@ -83,6 +53,15 @@ FSerializationContext::~FSerializationContext() {
 
 	this->PropertySerializer->MarkPendingKill();
 	this->ObjectHierarchySerializer->MarkPendingKill();
+}
+
+UObject* FSerializationContext::GetAssetObjectFromPackage(UPackage* Package, const FAssetData& AssetData) {
+	if (AssetData.TagsAndValues.Contains(FBlueprintTags::GeneratedClassPath)) {
+		return ResolveBlueprintClassAsset(Package, AssetData);
+	}
+	
+	//No GeneratedClassPath, it is an ordinary asset object
+	return ResolveGenericAsset(Package, AssetData);
 }
 
 void FSerializationContext::Finalize() const {

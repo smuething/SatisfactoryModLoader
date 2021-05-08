@@ -3,7 +3,7 @@
 #include "Toolkit/AssetDumping/AssetTypeSerializer.h"
 #include "Toolkit/AssetDumping/SerializationContext.h"
 
-using FInlinePackageArray = TArray<UPackage*, TInlineAllocator<16>>;
+using FInlinePackageArray = TArray<FPendingPackageData, TInlineAllocator<16>>;
 DEFINE_LOG_CATEGORY(LogAssetDumper)
 
 FAssetDumpSettings::FAssetDumpSettings() :
@@ -36,8 +36,8 @@ FAssetDumpProcessor::~FAssetDumpProcessor() {
 	//which will crash trying to call our method upon finishing after we've been destructed
 	check(PackageLoadRequestsInFlyCounter.GetValue() == 0);
 	
-	for (UPackage* Package : this->LoadedPackages) {
-		Package->RemoveFromRoot();
+	for (const FPendingPackageData& PackageData : this->LoadedPackages) {
+		PackageData.AssetObject->RemoveFromRoot();
 	}
 	
 	this->LoadedPackages.Empty();
@@ -102,14 +102,11 @@ void FAssetDumpProcessor::Tick(float DeltaTime) {
 	FInlinePackageArray PackagesToProcessParallel;
 	FInlinePackageArray PackagesToProcessInMainThread;
 
-	for (UPackage* Package : PackagesToProcessThisTick) {
-		const FAssetData* AssetData = AssetDataByPackageName.FindChecked(Package->GetFName());
-		UAssetTypeSerializer* Serializer = UAssetTypeSerializer::FindSerializerForAssetClass(AssetData->AssetClass);
-
-		if (Serializer->SupportsParallelDumping()) {
-			PackagesToProcessParallel.Add(Package);
+	for (const FPendingPackageData& PackageData : PackagesToProcessThisTick) {
+		if (PackageData.Serializer->SupportsParallelDumping()) {
+			PackagesToProcessParallel.Add(PackageData);
 		} else {
-			PackagesToProcessInMainThread.Add(Package);
+			PackagesToProcessInMainThread.Add(PackageData);
 		}
 	}
 
@@ -158,51 +155,37 @@ void FAssetDumpProcessor::OnPackageLoaded(const FName& PackageName, UPackage* Lo
 		PackagesSkipped.Increment();
 		return;
 	}
-	
-	//Add package to the root set so it will not be garbage collected while waiting to be processed
+
 	check(LoadedPackage);
-	LoadedPackage->AddToRoot();
+	FPendingPackageData PendingPackageData;
+	
+	if (!CreatePackageData(LoadedPackage, PendingPackageData)) {
+		this->PackagesSkipped.Increment();
+		return;
+	}
+	
+	//Add asset object to the root set so it will not be garbage collected while waiting to be processed
+	PendingPackageData.AssetObject->AddToRoot();
 
 	//Add package to loaded ones, using critical section so we avoid concurrency issues
 	this->LoadedPackagesCriticalSection.Lock();
-	this->LoadedPackages.Add(LoadedPackage);
+	this->LoadedPackages.Add(PendingPackageData);
 	this->LoadedPackagesCriticalSection.Unlock();
 
 	//Increment counter for packages in queue, it will prevent main thread from loading more packages if queue is already full
 	this->PackagesWaitingForProcessing.Increment();
 }
 
-void FAssetDumpProcessor::PerformAssetDumpForPackage(UPackage* Package) {
-	FAssetData* AssetData = AssetDataByPackageName.FindChecked(Package->GetFName());
-	const TSharedRef<FSerializationContext> Context = MakeShareable(new FSerializationContext(Settings.RootDumpDirectory, *AssetData, Package));
+void FAssetDumpProcessor::PerformAssetDumpForPackage(const FPendingPackageData& PackageData) {
+	UE_LOG(LogAssetDumper, Display, TEXT("Serializing asset %s"), *PackageData.Package->GetName());
 
-	//Unroot package at this point, we're going to process it this tick anyway, so it doesn't need to be kept anymore
-	Package->RemoveFromRoot();
+	//Serialize asset, finalize serialization, save data into file
+	PackageData.Serializer->SerializeAsset(PackageData.SerializationContext.ToSharedRef());
+	PackageData.SerializationContext->Finalize();
 
-	//Check for existing asset files
-	if (!Settings.bOverwriteExistingAssets) {
-		const FString AssetOutputFile = Context->GetDumpFilePath(TEXT(""), TEXT("json"));
-		
-		//Skip dumping when we have a dump file already and are not allowed to overwrite assets
-		if (FPlatformFileManager::Get().GetPlatformFile().FileExists(*AssetOutputFile)) {
-			UE_LOG(LogAssetDumper, Display, TEXT("Skipping dumping asset %s, dump file is already present and overwriting is not allowed"), *Package->GetName());
-			this->PackagesSkipped.Increment();
-			return;
-		}
-	}
-
-	//Find matching serializer, or skip package if we couldn't find one
-	UAssetTypeSerializer* Serializer = UAssetTypeSerializer::FindSerializerForAssetClass(AssetData->AssetClass);
-	if (Serializer == NULL) {
-		UE_LOG(LogAssetDumper, Warning, TEXT("Skipping dumping asset %s, failed to find serializer for the associated asset class '%s'"), *Package->GetName(), *AssetData->AssetClass.ToString());
-		this->PackagesSkipped.Increment();
-		return;
-	}
-
-	//Serialize asset, finalize serialization, save data into file and increment processed packages counter
-	UE_LOG(LogAssetDumper, Display, TEXT("Serializing asset %s (%s)"), *Package->GetName(), *AssetData->AssetClass.ToString());
-	Serializer->SerializeAsset(Context);
-	Context->Finalize();
+	//Unroot object now, we have processed it already and do not need to keep it in memory anymore
+	PackageData.AssetObject->RemoveFromRoot();
+	
 	this->PackagesProcessed.Increment();
 }
 
@@ -215,6 +198,38 @@ TStatId FAssetDumpProcessor::GetStatId() const {
 }
 
 bool FAssetDumpProcessor::IsTickableWhenPaused() const {
+	return true;
+}
+
+bool FAssetDumpProcessor::CreatePackageData(UPackage* Package, FPendingPackageData& PendingPackageData) {
+	const FAssetData* AssetData = AssetDataByPackageName.FindChecked(Package->GetFName());
+	UAssetTypeSerializer* Serializer = UAssetTypeSerializer::FindSerializerForAssetClass(AssetData->AssetClass);
+
+	if (Serializer == NULL) {
+		UE_LOG(LogAssetDumper, Warning, TEXT("Skipping dumping asset %s, failed to find serializer for the associated asset class '%s'"), *Package->GetName(), *AssetData->AssetClass.ToString());
+		return false;
+	}
+
+	UObject* AssetObject = FSerializationContext::GetAssetObjectFromPackage(Package, *AssetData);
+	checkf(AssetObject, TEXT("Failed to find asset object '%s' inside of the package '%s'"), *AssetData->AssetName.ToString(), *Package->GetPathName());
+
+	const TSharedPtr<FSerializationContext> Context = MakeShareable(new FSerializationContext(Settings.RootDumpDirectory, *AssetData, AssetObject));
+	
+	//Check for existing asset files
+	if (!Settings.bOverwriteExistingAssets) {
+		const FString AssetOutputFile = Context->GetDumpFilePath(TEXT(""), TEXT("json"));
+		
+		//Skip dumping when we have a dump file already and are not allowed to overwrite assets
+		if (FPlatformFileManager::Get().GetPlatformFile().FileExists(*AssetOutputFile)) {
+			UE_LOG(LogAssetDumper, Display, TEXT("Skipping dumping asset %s, dump file is already present and overwriting is not allowed"), *Package->GetName());
+			return false;
+		}
+	}
+
+	PendingPackageData.Package = Package;
+	PendingPackageData.AssetObject = AssetObject;
+	PendingPackageData.SerializationContext = Context;
+	PendingPackageData.Serializer = Serializer;
 	return true;
 }
 
