@@ -74,23 +74,26 @@ private:
 
 public:
 
+	static constexpr int32 DISABLED_ITEM = -100000;
+	static constexpr float EPSILON_FACTOR = 5e-2;
+
 	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
 	TArray<float> mOutputRates;
 
 	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
 	TArray<int32> mOutputStates;
 
-	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
-	TArray<float> mRemainingOutputPriority;
+	UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
+	TArray<int32> mRemainingItems;
 
-	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
+	UPROPERTY(Transient, BlueprintReadOnly)
+	TArray<int32> mItemsPerCycle;
+
+	UPROPERTY(Transient, BlueprintReadOnly)
 	int32 mLeftInCycle;
 
 	UPROPERTY(Transient,BlueprintReadWrite)
 	bool mDebug;
-
-	UPROPERTY(Transient, BlueprintReadOnly)
-	TArray<float> mPriorityStepSize;
 
 	UPROPERTY(Transient,BlueprintReadOnly)
 	int32 mCycleLength;
@@ -124,8 +127,9 @@ private:
 
 	std::array<int8,3> mJammedFor;
 
-	float mEpsilon;
+	std::array<float,3> mPriorityStepSize;	
 
+	float mEpsilon;
 	bool mBalancingRequired;
 
 };

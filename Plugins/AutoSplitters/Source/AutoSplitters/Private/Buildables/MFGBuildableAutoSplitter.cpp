@@ -1,8 +1,8 @@
 // ILikeBanas
 
-#include <numeric>
-
 #include "Buildables/MFGBuildableAutoSplitter.h"
+
+#include <numeric>
 
 #include "AutoSplittersLog.h"
 #include "FGFactoryConnectionComponent.h"
@@ -11,18 +11,22 @@
 AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
 	: mOutputRates({1.0,1.0,1.0})
 	, mOutputStates({Flag(EOutputState::Automatic),Flag(EOutputState::Automatic),Flag(EOutputState::Automatic)})
-	, mRemainingOutputPriority({0.0,0.0,0.0})
+	, mRemainingItems({0,0,0})
+	, mItemsPerCycle({0,0,0})
 	, mLeftInCycle(0)
-	, mPriorityStepSize({0.0,0.0,0.0})
+    , mDebug(false)
 	, mCycleLength(0)
 	, mJammedFor({0,0,0})
-	, mEpsilon(1e-6)
+	, mPriorityStepSize({0.0,0.0,0.0})
+	, mEpsilon(EPSILON_FACTOR)
 	, mBalancingRequired(true)
 {}
 
 void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion)
 {
 	Super::PostLoadGame_Implementation(saveVersion,gameVersion);
+	mLeftInCycle = std::accumulate(mRemainingItems.begin(),mRemainingItems.end(),0);
+	mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
 	SetupDistribution(true);
 }
 
@@ -67,26 +71,26 @@ void AMFGBuildableAutoSplitter::FillDistributionTable(float dt)
 	
 	if (mLeftInCycle <= 0)
 		PrepareCycle();
-	else
+	/*else
 	{
 		for (int32 i = 0 ; i < 3 ; ++i)
 		{
 			if (IsSet(mOutputStates[i],EOutputState::Connected))
 			{
-				if (mRemainingOutputPriority[i] == -100000.0)
+				if (mRemainingItems[i] == DISABLED_ITEM)
 				{
 					PrepareCycle();
 				}
 			}
 			else
 			{
-				if (mRemainingOutputPriority[i] > -100000.0)
+				if (mRemainingItems[i] != DISABLED_ITEM)
 				{
 					PrepareCycle();
 				}
 			}
 		}
-	}
+	}*/
 
 	std::array<int32,3> PossibleGrabs = {0};
 	std::array<float,3> Offsets = {0};
@@ -129,18 +133,19 @@ void AMFGBuildableAutoSplitter::FillDistributionTable(float dt)
 		bool BlockOutput = false;
 		for (int32 i = 0; i < 3; ++i)
 		{
+			const auto ItemPriority = mRemainingItems[i] * mPriorityStepSize[i];
 			if (PossibleGrabs[i] > 0)
 			{
-				if (mRemainingOutputPriority[i] + mEpsilon > Priority)
+				if (mRemainingItems[i] > 0 && ItemPriority + mEpsilon > Priority)
 				{
 					Next = i;
-					Priority = mRemainingOutputPriority[i];
+					Priority = ItemPriority;
 					BlockOutput = false;
 				}
 			}
 			else
 			{
-				if (mRemainingOutputPriority[i] - mEpsilon > Priority)
+				if (mRemainingItems[i] > 0 && ItemPriority - mEpsilon > Priority)
 				{
 					//UE_LOG(LogAutoSplitters,Display,TEXT("Output %d is jammed for %d tries"),i,mJammedFor[i]);
 					if (mJammedFor[i] >= 20)
@@ -151,7 +156,7 @@ void AMFGBuildableAutoSplitter::FillDistributionTable(float dt)
 					else
 					{
 						Next = i;
-						Priority = mRemainingOutputPriority[i];
+						Priority = ItemPriority;
 						BlockOutput = true;
 					}
 				}
@@ -169,7 +174,7 @@ void AMFGBuildableAutoSplitter::FillDistributionTable(float dt)
 			(MaxGrabs[Next] - PossibleGrabs[Next]) * AFGBuildableConveyorBase::ITEM_SPACING + Offsets[Next],
 			Slot
 			);
-		mRemainingOutputPriority[Next] -= mPriorityStepSize[Next];
+		--mRemainingItems[Next];
 		--PossibleGrabs[Next];
 		--TotalPossibleGrabs;
 
@@ -215,13 +220,12 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 	}
 	
 	// calculate item counts per cycle
-	std::array<int32,3> Items = {
-		IsSet(mOutputStates[0],EOutputState::Connected) * mOutputRates[0] * 10000,
-		IsSet(mOutputStates[1],EOutputState::Connected) * mOutputRates[1] * 10000,
-		IsSet(mOutputStates[2],EOutputState::Connected) * mOutputRates[2] * 10000,
-	};
+	for (int32 i = 0 ; i < 3 ; ++i)
+	{
+		mItemsPerCycle[i] = static_cast<int32>(std::round(IsSet(mOutputStates[i], EOutputState::Connected) * mOutputRates[i] * 10000));
+	}
 
-	auto GCD = std::gcd(std::gcd(Items[0],Items[1]),Items[2]);
+	auto GCD = std::gcd(std::gcd(mItemsPerCycle[0],mItemsPerCycle[1]),mItemsPerCycle[2]);
 
 	if (GCD == 0)
 	{
@@ -229,22 +233,22 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 		return;
 	}
 
-	for (auto& Item : Items)
+	for (auto& Item : mItemsPerCycle)
 		Item /= GCD;
 
 	mCycleLength = 0;
     bool Changed = false;
-	mEpsilon = 5e-2;
+	mEpsilon = EPSILON_FACTOR;
 	for (int32 i = 0 ; i < 3 ; ++i)
 	{
 		if (IsSet(mOutputStates[i],EOutputState::Connected))
 		{
-			mCycleLength += Items[i];
-			float StepSize = 0.0;
-			if (Items[i] > 0)
+			mCycleLength += mItemsPerCycle[i];
+			float StepSize = 0.0f;
+			if (mItemsPerCycle[i] > 0)
 			{
-				StepSize = 1.0/Items[i];
-				mEpsilon = std::min(mEpsilon,mPriorityStepSize[i] * 5e-2f);
+				StepSize = 1.0f/mItemsPerCycle[i];
+				mEpsilon = std::min(mEpsilon,StepSize * EPSILON_FACTOR);
 			}
 			else
 			{
@@ -281,9 +285,9 @@ void AMFGBuildableAutoSplitter::PrepareCycle()
 	for (int i = 0; i < 3 ; ++i)
 	{
 		if (IsSet(mOutputStates[i],EOutputState::Connected) && mOutputRates[i] > 0)
-			mRemainingOutputPriority[i] = 1.0;
+			mRemainingItems[i] = mItemsPerCycle[i];
 		else
-			mRemainingOutputPriority[i] = -100000.0;
+			mRemainingItems[i] = DISABLED_ITEM;
 	}
 }
 
