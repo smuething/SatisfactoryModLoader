@@ -16,8 +16,8 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
 	, mLeftInCycle(0)
     , mDebug(false)
 	, mCycleLength(0)
-	, mJammedFor({0,0,0})
-	, mAllowedItems({0,0,0})
+	, mBlockedFor({0,0,0})
+	, mAssignedItems({0,0,0})
 	, mGrabbedItems({0,0,0})
 	, mPriorityStepSize({0.0,0.0,0.0})
 	, mBalancingRequired(true)
@@ -40,21 +40,24 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 {
 	Super::Factory_Tick(dt);
 
-	for (int i = 0 ; i < 3 ; ++i)
-	{
-		mLeftInCycle -= mGrabbedItems[i];
-		mGrabbedItems[i] = 0;
-		mAllowedItems[i] = 0;
-	}
-	
 	if (mBalancingRequired)
 	{
 		BalanceNetwork(true);
 	}
 
+	for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
+	{
+		mLeftInCycle -= mGrabbedItems[i];
+		mGrabbedItems[i] = 0;
+		mAssignedItems[i] = 0;
+	}
+	mNextInventorySlot = {MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE};
+	mInventorySlotEnd = {0,0,0};
+	std::fill(mAssignedOutputs.begin(),mAssignedOutputs.end(),-1);
+	
 	int32 Connections = 0;
 	bool NeedsBalancing = false;
-	for (int32 i = 0 ; i < 3 ; ++i)
+	for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 	{
 		const bool Connected = IsSet(mOutputStates[i],EOutputState::Connected);
 		Connections += Connected;
@@ -67,27 +70,6 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 	if (NeedsBalancing)
 		BalanceNetwork();
 	
-	if (Connections == 0 || mBufferInventory->IsEmpty())
-	{
-		mCycleTime += dt;
-		return;
-	}
-
-	bool AllowCycleExtension = true;
-	if (mLeftInCycle < -20)
-	{
-		UE_LOG(LogAutoSplitters,Warning,TEXT("mLeftInCycle too negative (%d), resetting"),mLeftInCycle);
-		PrepareCycle(false,true);
-		AllowCycleExtension = false;		
-	}
-	else if (mLeftInCycle <= 0)
-	{
-		PrepareCycle(AllowCycleExtension);
-		AllowCycleExtension = false;
-	}
-
-	mCycleTime += dt;	
-
 	mCachedInventoryItemCount = 0;
 	auto PopulatedInventorySlots = make_array<int32,MAX_INVENTORY_SIZE>(-1);
 	for (int32 i = 0 ; i < mInventorySizeX ; ++i)
@@ -98,21 +80,36 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 		}
 	}
 
-	if (mCachedInventoryItemCount == 0)
+	if (Connections == 0 || mCachedInventoryItemCount == 0)
 	{
+		mCycleTime += dt;
 		return;
 	}
+	
+	if (mLeftInCycle < -40)
+	{
+		UE_LOG(LogAutoSplitters,Warning,TEXT("mLeftInCycle too negative (%d), resetting"),mLeftInCycle);
+		PrepareCycle(false,true);
+	}
+	else if (mLeftInCycle <= 0)
+	{
+		PrepareCycle(true);
+	}
 
-	for (int32 Slot = 0 ; Slot < mCachedInventoryItemCount ; ++Slot)
+	mCycleTime += dt;
+	std::array<int32,NUM_OUTPUTS> AssignableItems = {0};
+
+	for (int32 ActiveSlot = 0 ; ActiveSlot < mCachedInventoryItemCount ; ++ActiveSlot)
 	{
 		int32 Next = -1;
 		float Priority = -INFINITY;
-		std::array<float,3> Priorities = {0,0,0};
-		for (int32 i = 0; i < 3; ++i)
+		for (int32 i = 0; i < NUM_OUTPUTS; ++i)
 		{
-			const int32 AssignableItems = mRemainingItems[i] - mAllowedItems[i];
-			const auto ItemPriority = Priorities[i] = AssignableItems * mPriorityStepSize[i];
-			if (AssignableItems > 0 && ItemPriority > Priority)
+			// Adding the grabbed items in the next line de-skews the algorithm if the output has been
+			// penalized for an earlier inventory slot
+			AssignableItems[i] = mRemainingItems[i] - mAssignedItems[i] + mGrabbedItems[i];
+			const auto ItemPriority = AssignableItems[i] * mPriorityStepSize[i];
+			if (AssignableItems[i] > 0 && ItemPriority > Priority)
 			{
 				Next = i;
 				Priority = ItemPriority;
@@ -121,68 +118,69 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 
 		if (Next < 0)
 		{
-			bool Stuck = true;
-			for (int32 i = 0 ; i < 3 ; ++i)
-			{
-				Stuck = Stuck && mJammedFor[i] > 60;
-			}
-			if (Stuck)
-			{
-				if (mDebug)
-				{
-					UE_LOG(LogAutoSplitters,Display,TEXT("All outputs are jammed, splitter is stuck"));
-					break;
-				}
-			}
-			else
-			{
-				UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter got stuck mLeftInCycle=%d,forcing reset"),mLeftInCycle);
-				PrepareCycle(AllowCycleExtension);
-				AllowCycleExtension = false;
-				mCycleTime += dt;
-				break;
-			}
+			break;
 		}
 
-		std::array<bool,3> mPenalized = {false,false,false};
-		while (mJammedFor[Next] > 60)
+		std::array<bool,NUM_OUTPUTS> Penalized = {false,false,false};
+		while (IsOutputBlocked(Next) && Next >= 0)
 		{
 			if (mDebug)
 			{
-				UE_LOG(LogAutoSplitters,Display,TEXT("Output %d is stuck, reassigning item and penalizing output"),Next);
+				UE_LOG(LogAutoSplitters,Display,TEXT("Output %d is blocked, reassigning item and penalizing output"),Next);
 			}
-			mPenalized[Next] = true;
+			Penalized[Next] = true;
 			--mRemainingItems[Next];
-			++mAllowedItems[Next];
-			++mGrabbedItems[Next];
+			++mAssignedItems[Next];
+			++mGrabbedItems[Next]; // this is a blatant lie, but it will cause the correct update of mLeftInCycle during the next tick
+			--AssignableItems[Next];
 			Priority = -INFINITY;
-			for (int32 i = 0 ; i < 3 ; ++i)
+			Next = -1;
+			for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 			{
-				if (!mPenalized[i] && mRemainingItems[i] - mAllowedItems[i] < 0)
+				if (Penalized[i] || AssignableItems[i] <= 0)
 					continue;
 
-				if (Priorities[i] > Priority)
+				const auto ItemPriority = AssignableItems[i] * mPriorityStepSize[i];
+				if (ItemPriority > Priority)
 				{
 					Next = i;
-					Priority = Priorities[i];
+					Priority = ItemPriority;
 				}
 			}
 		}
 
-		mAssignedInventorySlots[Next][mAllowedItems[Next]++] = Slot;
+		if (Next >= 0)
+		{
+			const auto Slot = PopulatedInventorySlots[ActiveSlot];
+			mAssignedOutputs[Slot] = Next;
+			if (mNextInventorySlot[Next] == MAX_INVENTORY_SIZE)
+				mNextInventorySlot[Next] = Slot;
+			mInventorySlotEnd[Next] = Slot + 1;
+			++mAssignedItems[Next];
+		}
+		else if (mDebug) {
+			UE_LOG(LogAutoSplitters,Warning,TEXT("All eligible outputs blocked, cannot assign item!"))
+		}
+
 	}
 
-	for (int32 i = 0 ; i < 3 ; ++i)
+	for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 	{
-		if (mAllowedItems[i] > 0 && mJammedFor[i] < 125)
+		// Checking for mGrabbedItems seems weird, but that catches stuck outputs
+		// that have been penalized
+		if ((mAssignedItems[i] > 0 || mGrabbedItems[i] > 0))
 		{
-			++mJammedFor[i];
+			mBlockedFor[i] += dt;
 		}
 	}
 
 	if (mDebug)
 	{
-		UE_LOG(LogAutoSplitters,Display,TEXT("Assigned items: 0=%d 1=%d 2=%d"),mAllowedItems[0],mAllowedItems[1],mAllowedItems[2]);
+		UE_LOG(LogAutoSplitters,Display,TEXT("Assigned items (jammed): 0=%d (%f) 1=%d (%f) 2=%d (%f)"),
+			mAssignedItems[0],mBlockedFor[0],
+			mAssignedItems[1],mBlockedFor[1],
+			mAssignedItems[2],mBlockedFor[2]
+			);
 	}
 }
 
@@ -212,7 +210,7 @@ bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConn
 	FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf<UFGItemDescriptor> type)
 {
 	int32 Output = -1;
-	for (int32 i = 0 ; i < 3 ; ++i)
+	for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 	{
 		if (connection == mOutputs[i])
 		{
@@ -226,29 +224,39 @@ bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConn
 		return false;
 	}
 
-	mJammedFor[Output] = -1;	
+	mBlockedFor[Output] = 0.0;	
 
-	if (mAllowedItems[Output] <= mGrabbedItems[Output])
+	if (mAssignedItems[Output] <= mGrabbedItems[Output])
 	{
 		return false;
 	}
-	
-	FInventoryStack Stack;
-	const auto Slot = mAssignedInventorySlots[Output][mGrabbedItems[Output]];
-	mBufferInventory->GetStackFromIndex(Slot,Stack);
-	mBufferInventory->RemoveAllFromIndex(Slot);
-	out_item = Stack.Item;
-	out_OffsetBeyond = mGrabbedItems[Output] * AFGBuildableConveyorBase::ITEM_SPACING;
-	++mGrabbedItems[Output];
-	--mRemainingItems[Output];
-	++mReallyGrabbed;
 
-	if (mDebug)
+	for(int32 Slot = mNextInventorySlot[Output] ; Slot < mInventorySlotEnd[Output] ; ++Slot)
 	{
-		UE_LOG(LogAutoSplitters,Display,TEXT("Sent item out of output %d"),Output);
-	}
+		if (mAssignedOutputs[Slot] == Output)
+		{
+			FInventoryStack Stack;
+			mBufferInventory->GetStackFromIndex(Slot,Stack);
+			mBufferInventory->RemoveAllFromIndex(Slot);
+			out_item = Stack.Item;
+			out_OffsetBeyond = mGrabbedItems[Output] * AFGBuildableConveyorBase::ITEM_SPACING;
+			++mGrabbedItems[Output];
+			--mRemainingItems[Output];
+			++mReallyGrabbed;
+			mNextInventorySlot[Output] = Slot + 1;
+
+			if (mDebug)
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Sent item out of output %d"),Output);
+			}
 	
-	return true;
+			return true;
+		}
+	}
+
+	UE_LOG(LogAutoSplitters,Warning,TEXT("Output %d: No valid output found, this should not happen!"),Output);
+	
+	return false;
 }
 
 void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
@@ -256,7 +264,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 	if (!LoadingSave)
 	{
-		for (int32 i = 0 ; i < 3 ; ++i)
+		for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 		{
 			mOutputStates[i] = SetFlag(mOutputStates[i],EOutputState::Connected,mOutputs[i]->IsConnected());
 		}
@@ -271,7 +279,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 	}
 	
 	// calculate item counts per cycle
-	for (int32 i = 0 ; i < 3 ; ++i)
+	for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 	{
 		mItemsPerCycle[i] = static_cast<int32>(std::round(IsSet(mOutputStates[i], EOutputState::Connected) * mOutputRates[i] * 10000));
 	}
@@ -289,7 +297,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 	mCycleLength = 0;
     bool Changed = false;
-	for (int32 i = 0 ; i < 3 ; ++i)
+	for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
 	{
 		if (IsSet(mOutputStates[i],EOutputState::Connected))
 		{
@@ -298,10 +306,6 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 			if (mItemsPerCycle[i] > 0)
 			{
 				StepSize = 1.0f/mItemsPerCycle[i];
-			}
-			else
-			{
-				StepSize = 0;
 			}
 			if (mPriorityStepSize[i] != StepSize)
 			{
@@ -330,8 +334,17 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, const bool Reset)
 {
+	if (mDebug)
+	{
+		UE_LOG(LogAutoSplitters,Display,TEXT("PrepareCycle(%s,%s) cycleTime=%f grabbed=%d"),
+			AllowCycleExtension ? TEXT("true") : TEXT("false"),
+			Reset ? TEXT("true") : TEXT("false"),
+			mCycleTime,
+			mReallyGrabbed
+			);
+	}
 
-	if (!Reset && mCycleTime > 0.0 && mReallyGrabbed >= mCycleLength)
+	if (!Reset && mCycleTime > 0.0)
 	{
 		// update statistics
 		if (mItemRate > 0.0)
@@ -348,20 +361,20 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 		{
 			UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too short (%f), doubling cycle length to %d"),mCycleTime,2*mCycleLength);
 			mCycleLength *= 2;
-			for (int i = 0 ; i < 3 ; ++i)
+			for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
 				mItemsPerCycle[i] *= 2;
 		}
 		else if (mCycleTime > 10.0)
 		{
 			bool CanShortenCycle = !(mCycleLength & 1);
-			for (int i = 0 ; i < 3 ; ++i)
+			for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
 				CanShortenCycle = CanShortenCycle && !(mItemsPerCycle[i] & 1);
 
 			if (CanShortenCycle)
 			{
 				UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too long (%f), halving cycle length to %d"),mCycleTime,mCycleLength/2);
 				mCycleLength /= 2;
-				for (int i = 0 ; i < 3 ; ++i)
+				for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
 					mItemsPerCycle[i] /= 2;
 			}
 		}
@@ -374,20 +387,19 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 	{
 		mLeftInCycle = mCycleLength;
 
-		for (int i = 0; i < 3 ; ++i)
+		for (int i = 0; i < NUM_OUTPUTS ; ++i)
 		{
 			if (IsSet(mOutputStates[i],EOutputState::Connected) && mOutputRates[i] > 0)
 				mRemainingItems[i] = mItemsPerCycle[i];
 			else
 				mRemainingItems[i] = 0;
 		}
-		
 	}
 	else
 	{
 		mLeftInCycle += mCycleLength;
 
-		for (int i = 0; i < 3 ; ++i)
+		for (int i = 0; i < NUM_OUTPUTS ; ++i)
 		{
 			if (IsSet(mOutputStates[i],EOutputState::Connected) && mOutputRates[i] > 0)
 				mRemainingItems[i] += mItemsPerCycle[i];
@@ -399,7 +411,7 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 
 bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Rate)
 {
-	if (Output < 0 || Output > 2)
+	if (Output < 0 || Output > NUM_OUTPUTS - 1)
 		return false;
 	
 	if (Rate < 0.0 || Rate > 780.0)
@@ -419,7 +431,7 @@ bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Ra
 bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
 {
 
-	if (Output < 0 || Output > 2)
+	if (Output < 0 || Output > NUM_OUTPUTS - 1)
 		return false;
 
 	if (Automatic == IsSet(mOutputStates[Output],EOutputState::Automatic))
@@ -486,7 +498,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
 			++SplitterCount;
 			bool Changed = false;
 			float InputRate = 0;
-			for (int32 i = 0; i < 3; ++i)
+			for (int32 i = 0; i < NUM_OUTPUTS; ++i)
 			{
 				auto& OutputState = c.Splitter->mOutputStates[i];
 				const bool IsConnected = c.Splitter->mOutputs[i]->IsConnected();

@@ -2,8 +2,6 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
-
 #include <array>
 
 #include "FGFactoryConnectionComponent.h"
@@ -74,11 +72,17 @@ private:
 	void SetupDistribution(bool LoadingSave = false);
 	void PrepareCycle(bool AllowCycleExtension, bool Reset = false);
 
+	bool IsOutputBlocked(int32 Output) const
+	{
+		return mBlockedFor[Output] > BLOCK_DETECTION_THRESHOLD;
+	}
+
 public:
 
 	static constexpr int32 MAX_INVENTORY_SIZE = 16;
-	static constexpr int32 MAX_ASSIGNMENTS_PER_OUTPUT = 16;
 	static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.75f;
+	static constexpr int32 NUM_OUTPUTS = 3;
+	static constexpr float BLOCK_DETECTION_THRESHOLD = 0.5f;
 
 	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
 	TArray<float> mOutputRates;
@@ -141,11 +145,13 @@ private:
 	static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters, AMFGBuildableAutoSplitter* Splitter,
 	                              const int32 Level);
 
-	std::array<int8,3> mJammedFor;
-	std::array<int8,3> mAllowedItems;
-	std::array<int8,3> mGrabbedItems;
-	std::array<float,3> mPriorityStepSize;
-	std::array<std::array<int32,MAX_ASSIGNMENTS_PER_OUTPUT>,3> mAssignedInventorySlots;
+	std::array<float,NUM_OUTPUTS> mBlockedFor;
+	std::array<int32,NUM_OUTPUTS> mAssignedItems;
+	std::array<int32,NUM_OUTPUTS> mGrabbedItems;
+	std::array<float,NUM_OUTPUTS> mPriorityStepSize;
+	std::array<int32,MAX_INVENTORY_SIZE> mAssignedOutputs;
+	std::array<int32,NUM_OUTPUTS> mNextInventorySlot;
+	std::array<int32,NUM_OUTPUTS> mInventorySlotEnd;
 
 	bool mBalancingRequired;
 	int32 mCachedInventoryItemCount;
