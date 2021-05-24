@@ -65,6 +65,8 @@ private:
 	
 protected:
 
+	virtual void Factory_Tick(float dt) override;
+	virtual bool Factory_GrabOutput_Implementation( UFGFactoryConnectionComponent* connection, FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf< UFGItemDescriptor > type ) override;	
 	virtual void FillDistributionTable(float dt) override;
 
 private:
@@ -74,8 +76,11 @@ private:
 
 public:
 
+	static constexpr int32 MAX_INVENTORY_SIZE = 16;
+	static constexpr int32 MAX_ASSIGNMENTS_PER_OUTPUT = 4;
 	static constexpr int32 DISABLED_ITEM = -100000;
 	static constexpr float EPSILON_FACTOR = 5e-2;
+	static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.5f;
 
 	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
 	TArray<float> mOutputRates;
@@ -118,6 +123,19 @@ public:
 		{}
 	};
 
+	UFUNCTION(BlueprintCallable,BlueprintPure)
+	int32 GetInventorySize() const
+	{
+		return mCachedInventoryItemCount;
+	}
+
+	UFUNCTION(BlueprintCallable,BlueprintPure)
+	float GetItemRate() const
+	{
+		return mItemRate;
+	}
+	
+
 private:
 	static AMFGBuildableAutoSplitter*
 	FindAutoSplitterAfterBelt(UFGFactoryConnectionComponent* Connection, bool Forward);
@@ -126,11 +144,16 @@ private:
 	                              const int32 Level);
 
 	std::array<int8,3> mJammedFor;
-
-	std::array<float,3> mPriorityStepSize;	
+	std::array<int8,3> mAllowedItems;
+	std::array<int8,3> mGrabbedItems;
+	std::array<float,3> mPriorityStepSize;
+	std::array<std::array<int32,MAX_ASSIGNMENTS_PER_OUTPUT>,3> mAssignedInventorySlots;
 
 	float mEpsilon;
 	bool mBalancingRequired;
-
+	int32 mCachedInventoryItemCount;
+	float mItemRate;
+	float mCycleTime;
+	int32 mReallyGrabbed;
 };
 
