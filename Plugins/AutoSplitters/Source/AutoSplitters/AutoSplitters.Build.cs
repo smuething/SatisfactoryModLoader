@@ -43,6 +43,7 @@ public class AutoSplitters : ModuleRules
 				"SlateCore", "Slate", "UMG",
 				"InstancedSplines",
 				"Json",
+				"SML",
 				// ... add other public dependencies that you statically link with here ...
 			}
 		);

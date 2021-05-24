@@ -8,6 +8,12 @@
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 
+#if AUTO_SPLITTERS_DEBUG
+#define DEBUG_SPLITTER mDebug
+#else
+#define DEBUG_SPLITTER false
+#endif
+
 AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
 	: mOutputRates({1.0,1.0,1.0})
 	, mOutputStates({Flag(EOutputState::Automatic),Flag(EOutputState::Automatic),Flag(EOutputState::Automatic)})
@@ -124,7 +130,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 		std::array<bool,NUM_OUTPUTS> Penalized = {false,false,false};
 		while (IsOutputBlocked(Next) && Next >= 0)
 		{
-			if (mDebug)
+			if (DEBUG_SPLITTER)
 			{
 				UE_LOG(LogAutoSplitters,Display,TEXT("Output %d is blocked, reassigning item and penalizing output"),Next);
 			}
@@ -158,7 +164,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 			mInventorySlotEnd[Next] = Slot + 1;
 			++mAssignedItems[Next];
 		}
-		else if (mDebug) {
+		else if (DEBUG_SPLITTER) {
 			UE_LOG(LogAutoSplitters,Warning,TEXT("All eligible outputs blocked, cannot assign item!"))
 		}
 
@@ -174,7 +180,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 		}
 	}
 
-	if (mDebug)
+	if (DEBUG_SPLITTER)
 	{
 		UE_LOG(LogAutoSplitters,Display,TEXT("Assigned items (jammed): 0=%d (%f) 1=%d (%f) 2=%d (%f)"),
 			mAssignedItems[0],mBlockedFor[0],
@@ -245,7 +251,7 @@ bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConn
 			++mReallyGrabbed;
 			mNextInventorySlot[Output] = Slot + 1;
 
-			if (mDebug)
+			if (DEBUG_SPLITTER)
 			{
 				UE_LOG(LogAutoSplitters,Display,TEXT("Sent item out of output %d"),Output);
 			}
@@ -288,7 +294,10 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 	if (GCD == 0)
 	{
-		UE_LOG(LogAutoSplitters,Display,TEXT("Nothing connected, chilling"));
+		if (DEBUG_SPLITTER)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Nothing connected, chilling"));
+		}
 		return;
 	}
 
@@ -334,7 +343,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, const bool Reset)
 {
-	if (mDebug)
+	if (DEBUG_SPLITTER)
 	{
 		UE_LOG(LogAutoSplitters,Display,TEXT("PrepareCycle(%s,%s) cycleTime=%f grabbed=%d"),
 			AllowCycleExtension ? TEXT("true") : TEXT("false"),
@@ -359,7 +368,10 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 		
 		if (AllowCycleExtension && mCycleTime < 2.0)
 		{
-			UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too short (%f), doubling cycle length to %d"),mCycleTime,2*mCycleLength);
+			if (DEBUG_SPLITTER)
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too short (%f), doubling cycle length to %d"),mCycleTime,2*mCycleLength);
+			}
 			mCycleLength *= 2;
 			for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
 				mItemsPerCycle[i] *= 2;
@@ -372,7 +384,10 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 
 			if (CanShortenCycle)
 			{
-				UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too long (%f), halving cycle length to %d"),mCycleTime,mCycleLength/2);
+				if (DEBUG_SPLITTER)
+				{
+					UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too long (%f), halving cycle length to %d"),mCycleTime,mCycleLength/2);
+				}
 				mCycleLength /= 2;
 				for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
 					mItemsPerCycle[i] /= 2;

@@ -8,6 +8,8 @@
 #include "Buildables/FGBuildableAttachmentSplitter.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 
+#include "AutoSplittersModule.h"
+
 #include "MFGBuildableAutoSplitter.generated.h"
 
 UENUM(BlueprintType, Meta = (BitFlags))
@@ -52,14 +54,14 @@ constexpr int32 SetFlag(int32 BitField, EOutputState flag, bool Enabled)
 UCLASS()
 class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmentSplitter
 {
-public:
-	virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
-private:
 	GENERATED_BODY()
 
-	virtual void BeginPlay() override;
-
+public:
+	
 	AMFGBuildableAutoSplitter();
+
+	virtual void BeginPlay() override;
+	virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
 	
 protected:
 
@@ -135,6 +137,16 @@ public:
 	float GetItemRate() const
 	{
 		return mItemRate;
+	}
+
+	UFUNCTION(BlueprintCallable,BluePrintPure)
+	bool IsDebugSupported() const
+	{
+#if AUTO_SPLITTERS_DEBUG
+		return true;
+#else
+		return false;
+#endif
 	}
 	
 
