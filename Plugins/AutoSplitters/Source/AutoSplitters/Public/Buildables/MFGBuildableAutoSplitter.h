@@ -72,15 +72,13 @@ protected:
 private:
 
 	void SetupDistribution(bool LoadingSave = false);
-	void PrepareCycle();
+	void PrepareCycle(bool AllowCycleExtension, bool Reset = false);
 
 public:
 
 	static constexpr int32 MAX_INVENTORY_SIZE = 16;
-	static constexpr int32 MAX_ASSIGNMENTS_PER_OUTPUT = 4;
-	static constexpr int32 DISABLED_ITEM = -100000;
-	static constexpr float EPSILON_FACTOR = 5e-2;
-	static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.5f;
+	static constexpr int32 MAX_ASSIGNMENTS_PER_OUTPUT = 16;
+	static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.75f;
 
 	UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
 	TArray<float> mOutputRates;
@@ -107,7 +105,7 @@ public:
 	bool SetOutputRate(int32 Output, float Rate);
 
 	UFUNCTION(BlueprintCallable)
-	bool SetOutputAutomatic(int32 Output, bool automatic);
+	bool SetOutputAutomatic(int32 Output, bool Automatic);
 
 	UFUNCTION(BlueprintCallable)
 	int32 BalanceNetwork(bool RootOnly = false);
@@ -149,7 +147,6 @@ private:
 	std::array<float,3> mPriorityStepSize;
 	std::array<std::array<int32,MAX_ASSIGNMENTS_PER_OUTPUT>,3> mAssignedInventorySlots;
 
-	float mEpsilon;
 	bool mBalancingRequired;
 	int32 mCachedInventoryItemCount;
 	float mItemRate;
