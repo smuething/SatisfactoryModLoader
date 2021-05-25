@@ -1,17 +1,18 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.1.0",
+	"Version": 0,
+	"VersionName": "0.2.0",
+	"SemVersion": "0.2.0",
 	"FriendlyName": "Auto Splitters",
-	"Description": "Automatic Splitters and Mergers",
+	"Description": "Auto-balancing splitters for the rest of us without time for gigantic load balancers.",
 	"Category": "Modding",
-	"CreatedBy": "someone",
-	"CreatedByURL": "",
+	"CreatedBy": "SteffenM",
+	"CreatedByURL": "https://github.com/smuething/SatisfactoryAutoSplitters",
 	"DocsURL": "",
 	"MarketplaceURL": "",
 	"SupportURL": "",
 	"CanContainContent": true,
-	"IsBetaVersion": true,
+	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
 	"Installed": false,
 	"Modules": [
@@ -24,7 +25,7 @@
 	"Plugins": [
 		{
 			"Name": "SML",
-			"SemVersion": "^3.1.0",
+			"SemVersion": "^3.1.1",
 			"Enabled": true
 		}
 	]
