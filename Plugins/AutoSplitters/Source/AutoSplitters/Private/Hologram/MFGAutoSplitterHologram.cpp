@@ -25,6 +25,8 @@ void AMFGAutoSplitterHologram::ConfigureComponents(AFGBuildable* inBuildable) co
 			const_cast<AMFGAutoSplitterHologram*>(this)->mSnappedConnectionComponents[i] = nullptr;
 		}
 
+		// Skip AFGAttachmentSplitterHologram and AFGConveyorAttachmentHologram, those two completely
+		// break in the update case
 		AFGFactoryHologram::ConfigureComponents(inBuildable);
 
 		TInlineComponentArray<UFGFactoryConnectionComponent*,4> Connections;
@@ -38,7 +40,6 @@ void AMFGAutoSplitterHologram::ConfigureComponents(AFGBuildable* inBuildable) co
 
 		for (int i = 0 ; i < 4 ; ++i)
 		{
-			UE_LOG(LogAutoSplitters,Display,TEXT("Component %d, name = %s,  direction = %s"),i,*Connections[i]->GetName(),Connections[i]->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("input") : TEXT("output"));
 			if (Connections[i]->IsConnected())
 			{
 				UE_LOG(LogAutoSplitters,Warning,TEXT("Connection %d is connected but should not be"),i);
@@ -47,13 +48,9 @@ void AMFGAutoSplitterHologram::ConfigureComponents(AFGBuildable* inBuildable) co
 
 			if (SnappedConnections[i])
 			{
-				UE_LOG(LogAutoSplitters,Display,TEXT("Hooking up connection %d to old connection %d, direction: %s"),i,i,SnappedConnections[i]->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("input") : TEXT("output"));
 				Connections[i]->SetConnection(SnappedConnections[i]);
 			}
-		}
-		
-		UE_LOG(LogAutoSplitters,Display,TEXT("ConfigureComponents() completed"));
-		
+		}		
 	}
 	else
 	{
