@@ -56,6 +56,9 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
 {
 	GENERATED_BODY()
 
+	friend class FAutoSplittersModule;
+	friend class AMFGAutoSplitterHologram;
+	
 public:
 	
 	AMFGBuildableAutoSplitter();
@@ -148,7 +151,6 @@ public:
 		return false;
 #endif
 	}
-	
 
 private:
 	static AMFGBuildableAutoSplitter*
@@ -156,6 +158,8 @@ private:
 
 	static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters, AMFGBuildableAutoSplitter* Splitter,
 	                              const int32 Level);
+
+	virtual void UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source);	
 
 	std::array<float,NUM_OUTPUTS> mBlockedFor;
 	std::array<int32,NUM_OUTPUTS> mAssignedItems;

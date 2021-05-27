@@ -202,6 +202,7 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogAutoSplitters,Display,TEXT("AMFGBuildableAutoSplitter::BeginPlay()"));
 	mBalancingRequired = true;
 }
 
@@ -560,6 +561,114 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
 		}
 	}
 	return SplitterCount;
+}
+
+void AMFGBuildableAutoSplitter::UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source)
+{
+	UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading splitter to Auto Splitter"));
+	
+	// WARNING
+	// this is a REALLY ugly hack, but should be safe as long as we ONLY access the otherwise off-limits
+	// protected members mInputs and mOutputs of the source through this reference, and as long as there
+	// is no funny virtual inheritance business going on, which there shouldn't be.
+	AMFGBuildableAutoSplitter& DowncastedSource = static_cast<AMFGBuildableAutoSplitter&>(Source);
+
+	// let's get the lay of the land first
+	/*
+	for (int32 i = 0 ; i < DowncastedSource.mInputs.Num() ; ++i)
+	{
+		auto Input = DowncastedSource.mInputs[i];
+		if (Input)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Source input %d: %s"),i,Input->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
+			if (Input->IsConnected())
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Connected source input %d : %d, connected: %s"),i,Input->GetConnection(),Input->GetConnection()->IsConnected());
+				if (Input->GetConnection()->IsConnected())
+				{
+					UE_LOG(LogAutoSplitters,Display,TEXT("Connected source input %d : connected to: %s"),i,Input->GetConnection()->GetConnection());					
+				}
+			}
+		}
+	}
+
+	for (int32 i = 0 ; i < DowncastedSource.mOutputs.Num() ; ++i)
+	{
+		auto Output = DowncastedSource.mOutputs[i];
+		if (Output)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Source output %d: %s"),i,Output->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
+			if (Output->IsConnected())
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Connected source output %d : %d, connected: %s"),i,Output->GetConnection(),Output->GetConnection()->IsConnected());
+				if (Output->GetConnection()->IsConnected())
+				{
+					UE_LOG(LogAutoSplitters,Display,TEXT("Connected source output %d : connected to: %s"),i,Output->GetConnection()->GetConnection());					
+				}
+			}
+		}
+	}
+    */
+
+	for (int32 i = 0 ; i < mInputs.Num() ; ++i)
+	{
+		auto Input = mInputs[i];
+		if (Input)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Target input %d: %s"),i,Input->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
+			if (Input->IsConnected())
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Connected target input %d : %d, connected: %s"),i,Input->GetConnection(),Input->GetConnection()->IsConnected());
+				if (Input->GetConnection()->IsConnected())
+				{
+					UE_LOG(LogAutoSplitters,Display,TEXT("Connected target input %d : connected to: %s"),i,Input->GetConnection()->GetConnection());					
+				}
+			}
+		}
+	}
+
+	for (int32 i = 0 ; i < mOutputs.Num() ; ++i)
+	{
+		auto Output = mOutputs[i];
+		if (Output)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Target output %d: %s"),i,Output->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
+			if (Output->IsConnected())
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Connected target output %d : %d, connected: %s"),i,Output->GetConnection(),Output->GetConnection()->IsConnected());
+				if (Output->GetConnection()->IsConnected())
+				{
+					UE_LOG(LogAutoSplitters,Display,TEXT("Connected target output %d : connected to: %s"),i,Output->GetConnection()->GetConnection());					
+				}
+			}
+		}
+	}
+
+
+	/*
+	if (DowncastedSource.mInputs[0]->IsConnected())
+	{
+		auto Input = DowncastedSource.mInputs[0]->GetConnection();
+		Input->ClearConnection();
+		Input->SetConnection(mInputs[0]);
+	}
+
+	for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
+	{
+		if (DowncastedSource.mOutputs[i]->IsConnected())
+		{
+			auto Output = DowncastedSource.mOutputs[i]->GetConnection();
+			Output->ClearConnection();
+			Output->SetConnection(mOutputs[i]);
+		}
+	}
+
+	UE_LOG(LogAutoSplitters,Display,TEXT("Inventory locked: %s"),Source.GetBufferInventory()->IsLocked() ? TEXT("true") : TEXT("false"));
+
+	GetBufferInventory()->CopyFromOtherComponent(Source.GetBufferInventory());
+
+	UE_LOG(LogAutoSplitters,Display,TEXT("Target Inventory locked: %s"),GetBufferInventory()->IsLocked() ? TEXT("true") : TEXT("false"));
+	*/
 }
 
 AMFGBuildableAutoSplitter* AMFGBuildableAutoSplitter::FindAutoSplitterAfterBelt(
