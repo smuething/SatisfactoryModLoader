@@ -59,10 +59,10 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     friend class FAutoSplittersModule;
     friend class AMFGAutoSplitterHologram;
 
-    static constexpr uint32 INPUT_CONNECTED   = 1 <<  8;
-    static constexpr uint32 MANUAL_INPUT_RATE = 1 <<  9;
-    static constexpr uint32 NEWLY_CONSTRUCTED = 1 << 10;
-    
+    static constexpr uint32 MANUAL_INPUT_RATE = 1 <<  8;
+    static constexpr uint32 NEWLY_CONSTRUCTED = 1 <<  9;
+
+    static constexpr uint32 VERSION = 1;
     
 public:
     
@@ -125,6 +125,23 @@ public:
     int32 mCycleLength;
 
     UFUNCTION(BlueprintCallable)
+    float GetTargetOutputRate(int32 Output) const
+    {
+        if (Output < 0 || Output > NUM_OUTPUTS - 1)
+            return 0;
+        return (mTargetRate*mItemsPerCycle[Output]) / mCycleLength;
+    }
+
+    UFUNCTION(BlueprintCallable)
+    bool IsTargetRateAutomatic() const
+    {
+        return !IsPersistentFlagSet(MANUAL_INPUT_RATE);
+    }
+
+    UFUNCTION(BlueprintCallable)
+    bool SetTargetRateAutomatic(bool Automatic);
+
+    UFUNCTION(BlueprintCallable)
     bool SetTargetRate(float Rate);
 
     UFUNCTION(BlueprintCallable)
@@ -136,12 +153,12 @@ public:
     UFUNCTION(BlueprintCallable)
     int32 BalanceNetwork(bool RootOnly = false);
 
-    FORCEINLINE uint32 GetSplitterVersion() const
+    uint32 GetSplitterVersion() const
     {
         return mPersistentState & 0xFFu;
     }
 
-    FORCEINLINE bool IsPersistentFlagSet(int32 Flag) const
+    bool IsPersistentFlagSet(uint32 Flag) const
     {
         return !!(mPersistentState & Flag);
     }
@@ -180,8 +197,8 @@ public:
     }
 
 private:
-    static AMFGBuildableAutoSplitter*
-    FindAutoSplitterAfterBelt(UFGFactoryConnectionComponent* Connection, bool Forward);
+    static std::tuple<AMFGBuildableAutoSplitter*,float>
+    FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
     static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
                                   AMFGBuildableAutoSplitter* Splitter, AMFGBuildableAutoSplitter* Root,
@@ -206,8 +223,6 @@ private:
         mPersistentState ^= Flag;
     }
 
-    
-
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;
     std::array<int32,NUM_OUTPUTS> mGrabbedItems;
@@ -217,6 +232,7 @@ private:
     std::array<int32,NUM_OUTPUTS> mInventorySlotEnd;
 
     bool mBalancingRequired;
+    bool mCachedIsInputConnected;
     int32 mCachedInventoryItemCount;
     float mItemRate;
     float mCycleTime;

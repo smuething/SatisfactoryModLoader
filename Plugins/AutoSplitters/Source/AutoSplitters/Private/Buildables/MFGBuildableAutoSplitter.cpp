@@ -18,9 +18,10 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     : mOutputRates({1.0,1.0,1.0})
     , mOutputStates({Flag(EOutputState::Automatic),Flag(EOutputState::Automatic),Flag(EOutputState::Automatic)})
     , mRemainingItems({0,0,0})
-    , mItemsPerCycle({0,0,0})
+    , mPersistentState(VERSION)
     , mTargetRate(0)
     , mRootSplitter(nullptr)
+    , mItemsPerCycle({0,0,0})
     , mLeftInCycle(0)
     , mDebug(false)
     , mCycleLength(0)
@@ -29,6 +30,7 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mGrabbedItems({0,0,0})
     , mPriorityStepSize({0.0,0.0,0.0})
     , mBalancingRequired(true)
+    , mCachedIsInputConnected(false)
     , mCachedInventoryItemCount(0)
     , mItemRate(0.0)
     , mCycleTime(0.0)
@@ -204,6 +206,13 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
     mLeftInCycle = std::accumulate(mRemainingItems.begin(),mRemainingItems.end(),0);
     mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
     mCycleTime = -100000.0; // this delays item rate calculation to the first full cycle when loading the game
+
+    if (GetSplitterVersion() == 0)
+    {
+        UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading saved Auto Splitter from version 0 to 1"));
+        SetSplitterVersion(1);
+    }
+    
     SetupDistribution(true);
 }
 
@@ -432,9 +441,20 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
     }
 }
 
+bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic(bool Automatic)
+{
+    SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
+    if (!Automatic)
+        mTargetRate = 0.0; // will trigger an update during the next factory tick
+    return true;
+}
+
 bool AMFGBuildableAutoSplitter::SetTargetRate(float Rate)
 {
     if (Rate < 0)
+        return false;
+
+    if (IsTargetRateAutomatic())
         return false;
 
     bool Changed = mTargetRate != Rate;
@@ -502,7 +522,12 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
     TSet<AMFGBuildableAutoSplitter*> SplitterSet;
     // start by going upstream
     auto Root = this;
-    for (auto Current = this ; Current ; Current = FindAutoSplitterAfterBelt(Current->mInputs[0],false))
+    SplitterSet.Add(Root);
+    for (
+        auto [Current,Rate] = FindAutoSplitterAndMaxBeltRate(Root->mInputs[0],false) ;
+        Current ;
+        std::tie(Current,Rate) = FindAutoSplitterAndMaxBeltRate(Current->mInputs[0],false)
+        )
     {
         if (SplitterSet.Contains(Current))
         {
@@ -653,9 +678,10 @@ void AMFGBuildableAutoSplitter::UpgradeFromSplitter(AFGBuildableAttachmentSplitt
     }
 }
 
-AMFGBuildableAutoSplitter* AMFGBuildableAutoSplitter::FindAutoSplitterAfterBelt(
+std::tuple<AMFGBuildableAutoSplitter*,float> AMFGBuildableAutoSplitter::FindAutoSplitterAndMaxBeltRate(
     UFGFactoryConnectionComponent* Connection, bool Forward)
 {
+    float Rate = 0;
     while (Connection->IsConnected())
     {
         Connection = Connection->GetConnection();
@@ -663,11 +689,12 @@ AMFGBuildableAutoSplitter* AMFGBuildableAutoSplitter::FindAutoSplitterAfterBelt(
         if (Belt)
         {			
             Connection = Forward ? Belt->GetConnection1() : Belt->GetConnection0();
+            Rate = std::min(Rate,Belt->GetSpeed() / 2);
             continue;
         }
-        return Cast<AMFGBuildableAutoSplitter>(Connection->GetOuterBuildable());
+        return {Cast<AMFGBuildableAutoSplitter>(Connection->GetOuterBuildable()),Rate};
     }
-    return nullptr;
+    return {nullptr,0.0f};
 }
 
 void AMFGBuildableAutoSplitter::DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
@@ -684,7 +711,7 @@ void AMFGBuildableAutoSplitter::DiscoverHierarchy(TArray<TArray<FConnections>>& 
     int32 i = 0;
     for (auto Connection : Splitter->mOutputs)
     {
-        const auto Downstream = FindAutoSplitterAfterBelt(Connection, true);
+        const auto [Downstream,_] = FindAutoSplitterAndMaxBeltRate(Connection, true);
         Connections.Outputs[i++] = Downstream;
         if (Downstream)
             DiscoverHierarchy(Splitters, Downstream, Root, Level + 1);
