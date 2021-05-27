@@ -28,6 +28,8 @@ protected:
 	// End AFGBuildableHologram Interface
 
 private:
+
+protected:
 	/** If we're upgrading another actor. */
 	UPROPERTY()
 	class AFGBuildableAttachmentSplitter* mUpgradedSplitter;
