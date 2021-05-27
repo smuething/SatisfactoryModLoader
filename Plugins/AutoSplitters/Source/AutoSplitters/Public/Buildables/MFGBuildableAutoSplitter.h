@@ -58,6 +58,11 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
 
     friend class FAutoSplittersModule;
     friend class AMFGAutoSplitterHologram;
+
+    static constexpr uint32 INPUT_CONNECTED   = 1 <<  8;
+    static constexpr uint32 MANUAL_INPUT_RATE = 1 <<  9;
+    static constexpr uint32 NEWLY_CONSTRUCTED = 1 << 10;
+    
     
 public:
     
@@ -98,8 +103,14 @@ public:
     UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mRemainingItems;
 
-    UPROPERTY(SaveGame, BlueprintReadWrite, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    uint32 mPersistentState;
+
+    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     float mTargetRate;
+
+    UPROPERTY(Transient, BlueprintReadOnly)
+    AMFGBuildableAutoSplitter* mRootSplitter;
 
     UPROPERTY(Transient, BlueprintReadOnly)
     TArray<int32> mItemsPerCycle;
@@ -114,6 +125,9 @@ public:
     int32 mCycleLength;
 
     UFUNCTION(BlueprintCallable)
+    bool SetTargetRate(float Rate);
+
+    UFUNCTION(BlueprintCallable)
     bool SetOutputRate(int32 Output, float Rate);
 
     UFUNCTION(BlueprintCallable)
@@ -121,6 +135,16 @@ public:
 
     UFUNCTION(BlueprintCallable)
     int32 BalanceNetwork(bool RootOnly = false);
+
+    FORCEINLINE uint32 GetSplitterVersion() const
+    {
+        return mPersistentState & 0xFFu;
+    }
+
+    FORCEINLINE bool IsPersistentFlagSet(int32 Flag) const
+    {
+        return !!(mPersistentState & Flag);
+    }
 
     struct FConnections
     {
@@ -159,10 +183,30 @@ private:
     static AMFGBuildableAutoSplitter*
     FindAutoSplitterAfterBelt(UFGFactoryConnectionComponent* Connection, bool Forward);
 
-    static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters, AMFGBuildableAutoSplitter* Splitter,
+    static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
+                                  AMFGBuildableAutoSplitter* Splitter, AMFGBuildableAutoSplitter* Root,
                                   const int32 Level);
 
-    virtual void UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source);	
+    virtual void UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source);
+
+    void SetSplitterVersion(uint32 Version);
+
+    FORCEINLINE void SetPersistentFlag(int32 Flag, bool Value = true)
+    {
+        mPersistentState = (mPersistentState & ~Flag) | (Value * Flag);
+    }
+
+    FORCEINLINE void ClearPersistentFlag(int32 Flag)
+    {
+        mPersistentState &= Flag;
+    }
+
+    FORCEINLINE void TogglePersistentFlag(int32 Flag)
+    {
+        mPersistentState ^= Flag;
+    }
+
+    
 
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;

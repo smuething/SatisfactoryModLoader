@@ -19,6 +19,8 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mOutputStates({Flag(EOutputState::Automatic),Flag(EOutputState::Automatic),Flag(EOutputState::Automatic)})
     , mRemainingItems({0,0,0})
     , mItemsPerCycle({0,0,0})
+    , mTargetRate(0)
+    , mRootSplitter(nullptr)
     , mLeftInCycle(0)
     , mDebug(false)
     , mCycleLength(0)
@@ -60,6 +62,12 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     mNextInventorySlot = {MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE};
     mInventorySlotEnd = {0,0,0};
     std::fill(mAssignedOutputs.begin(),mAssignedOutputs.end(),-1);
+
+    if (mTargetRate == 0.0f && mInputs[0]->IsConnected())
+    {
+        auto Belt = Cast<AFGBuildableConveyorBase>(mInputs[0]->GetConnection()->GetOuterBuildable());
+        mTargetRate = Belt->GetSpeed() / 2.0;
+    }
     
     int32 Connections = 0;
     bool NeedsBalancing = false;
@@ -202,7 +210,6 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
     Super::BeginPlay();
-    UE_LOG(LogAutoSplitters,Display,TEXT("AMFGBuildableAutoSplitter::BeginPlay()"));
     mBalancingRequired = true;
 }
 
@@ -425,6 +432,20 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
     }
 }
 
+bool AMFGBuildableAutoSplitter::SetTargetRate(float Rate)
+{
+    if (Rate < 0)
+        return false;
+
+    bool Changed = mTargetRate != Rate;
+    mTargetRate = Rate;
+
+    if (Changed)
+        BalanceNetwork();
+
+    return true;
+}
+
 bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Rate)
 {
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
@@ -497,11 +518,10 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
         Root->mBalancingRequired = true;
         return -1;
     }
-
+    
     // Now walk the tree to discover the whole network
     TArray<TArray<FConnections>> SplitterHierarchy;
-    DiscoverHierarchy(SplitterHierarchy,Root,0);
-
+    DiscoverHierarchy(SplitterHierarchy,Root,Root,0);
 
     // We have found all connected AutoSplitters, now let's re-balance
     TMap<AMFGBuildableAutoSplitter*,float> InputRates;
@@ -554,12 +574,37 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
                 if (!IsSet(OutputState,EOutputState::Automatic) || IsConnected)
                     InputRate += c.Splitter->mOutputRates[i];
             }
+            
             if (Changed)
                 c.Splitter->SetupDistribution();
 
             InputRates.Add(c.Splitter,InputRate);
         }
     }
+
+    if (Root->IsPersistentFlagSet(MANUAL_INPUT_RATE) && Root->mInputs[0]->IsConnected())
+    {
+        auto Belt = Cast<AFGBuildableConveyorBase>(Root->mInputs[0]->GetConnection()->GetOuterBuildable());
+        Root->mTargetRate = Belt->GetSpeed() * 0.5;
+    }
+
+    if (Root->mTargetRate > 0)
+    {
+        for (auto& Level : SplitterHierarchy)
+        {
+            for (auto& Splitter : Level)
+            {
+                for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+                {
+                    if (!Splitter.Outputs[i])
+                        continue;
+
+                    Splitter.Outputs[i]->mTargetRate = (Splitter.Splitter->mTargetRate * Splitter.Splitter->mItemsPerCycle[i]) / Splitter.Splitter->mCycleLength;
+                }
+            }
+        }
+    }
+    
     return SplitterCount;
 }
 
@@ -572,43 +617,6 @@ void AMFGBuildableAutoSplitter::UpgradeFromSplitter(AFGBuildableAttachmentSplitt
     // protected members mInputs and mOutputs of the source through this reference, and as long as there
     // is no funny virtual inheritance business going on, which there shouldn't be.
     AMFGBuildableAutoSplitter& DowncastedSource = static_cast<AMFGBuildableAutoSplitter&>(Source);
-
-    // let's get the lay of the land first
-    /*
-    for (int32 i = 0 ; i < DowncastedSource.mInputs.Num() ; ++i)
-    {
-        auto Input = DowncastedSource.mInputs[i];
-        if (Input)
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Source input %d: %s"),i,Input->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
-            if (Input->IsConnected())
-            {
-                UE_LOG(LogAutoSplitters,Display,TEXT("Connected source input %d : %d, connected: %s"),i,Input->GetConnection(),Input->GetConnection()->IsConnected());
-                if (Input->GetConnection()->IsConnected())
-                {
-                    UE_LOG(LogAutoSplitters,Display,TEXT("Connected source input %d : connected to: %s"),i,Input->GetConnection()->GetConnection());					
-                }
-            }
-        }
-    }
-
-    for (int32 i = 0 ; i < DowncastedSource.mOutputs.Num() ; ++i)
-    {
-        auto Output = DowncastedSource.mOutputs[i];
-        if (Output)
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Source output %d: %s"),i,Output->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
-            if (Output->IsConnected())
-            {
-                UE_LOG(LogAutoSplitters,Display,TEXT("Connected source output %d : %d, connected: %s"),i,Output->GetConnection(),Output->GetConnection()->IsConnected());
-                if (Output->GetConnection()->IsConnected())
-                {
-                    UE_LOG(LogAutoSplitters,Display,TEXT("Connected source output %d : connected to: %s"),i,Output->GetConnection()->GetConnection());					
-                }
-            }
-        }
-    }
-    */
 
     for (int32 i = 0 ; i < mInputs.Num() ; ++i)
     {
@@ -643,32 +651,6 @@ void AMFGBuildableAutoSplitter::UpgradeFromSplitter(AFGBuildableAttachmentSplitt
             }
         }
     }
-
-
-    /*
-    if (DowncastedSource.mInputs[0]->IsConnected())
-    {
-        auto Input = DowncastedSource.mInputs[0]->GetConnection();
-        Input->ClearConnection();
-        Input->SetConnection(mInputs[0]);
-    }
-
-    for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
-    {
-        if (DowncastedSource.mOutputs[i]->IsConnected())
-        {
-            auto Output = DowncastedSource.mOutputs[i]->GetConnection();
-            Output->ClearConnection();
-            Output->SetConnection(mOutputs[i]);
-        }
-    }
-
-    UE_LOG(LogAutoSplitters,Display,TEXT("Inventory locked: %s"),Source.GetBufferInventory()->IsLocked() ? TEXT("true") : TEXT("false"));
-
-    GetBufferInventory()->CopyFromOtherComponent(Source.GetBufferInventory());
-
-    UE_LOG(LogAutoSplitters,Display,TEXT("Target Inventory locked: %s"),GetBufferInventory()->IsLocked() ? TEXT("true") : TEXT("false"));
-    */
 }
 
 AMFGBuildableAutoSplitter* AMFGBuildableAutoSplitter::FindAutoSplitterAfterBelt(
@@ -689,12 +671,15 @@ AMFGBuildableAutoSplitter* AMFGBuildableAutoSplitter::FindAutoSplitterAfterBelt(
 }
 
 void AMFGBuildableAutoSplitter::DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
-                                                  AMFGBuildableAutoSplitter* Splitter, const int32 Level)
+                                                  AMFGBuildableAutoSplitter* Splitter,
+                                                  AMFGBuildableAutoSplitter* Root,
+                                                  const int32 Level)
 {
     if (!Splitters.IsValidIndex(Level))
     {
         Splitters.Emplace();
     }
+    Splitter->mRootSplitter = Root;
     auto& Connections = Splitters[Level][Splitters[Level].Emplace(Splitter)];
     int32 i = 0;
     for (auto Connection : Splitter->mOutputs)
@@ -702,6 +687,19 @@ void AMFGBuildableAutoSplitter::DiscoverHierarchy(TArray<TArray<FConnections>>& 
         const auto Downstream = FindAutoSplitterAfterBelt(Connection, true);
         Connections.Outputs[i++] = Downstream;
         if (Downstream)
-            DiscoverHierarchy(Splitters, Downstream, Level + 1);
+            DiscoverHierarchy(Splitters, Downstream, Root, Level + 1);
     }
+}
+
+void AMFGBuildableAutoSplitter::SetSplitterVersion(uint32 Version)
+{
+    if (Version < 1 || Version > 254)
+    {
+        UE_LOG(LogAutoSplitters,Fatal,TEXT("Invalid Auto Splitter version: %d"),Version);
+    }
+    if (Version < GetSplitterVersion())
+    {
+        UE_LOG(LogAutoSplitters,Fatal,TEXT("Cannot downgrade Auto Splitter from version %d to %d"),GetSplitterVersion(),Version);
+    }
+    mPersistentState = (mPersistentState & ~0xFFu) | (Version & 0xFFu);
 }
