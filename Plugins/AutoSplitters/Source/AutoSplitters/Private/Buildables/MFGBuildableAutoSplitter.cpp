@@ -48,8 +48,10 @@ constexpr auto make_array(T value) -> std::array<T,n>
 
 void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 {
-    Super::Factory_Tick(dt);
 
+    // skip splitter base class, it doesn't do anything useful for us
+    AFGBuildableConveyorAttachment::Factory_Tick(dt);
+    
     if (mBalancingRequired)
     {
         BalanceNetwork(true);
@@ -298,8 +300,12 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
         IsSet(mOutputStates[1],EOutputState::Connected) ||
         IsSet(mOutputStates[2],EOutputState::Connected)))
     {
+        mOutputRates[0] = mOutputRates[1] = mOutputRates[2] = 1.0;
+        RescaleOutputRates();
         return;		
     }
+
+    RescaleOutputRates();
     
     // calculate item counts per cycle
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
@@ -582,10 +588,20 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
                     OutputState = ClearFlag(OutputState,EOutputState::AutoSplitter);	
                     if (IsSet(OutputState,EOutputState::Automatic))
                     {
-                        if (c.Splitter->mOutputRates[i] != 1.0)
+                        if (IsConnected != IsSet(OutputState,EOutputState::Connected))
                         {
-                            c.Splitter->mOutputRates[i] = 1.0;
+                            OutputState = SetFlag(OutputState,EOutputState::Connected,IsConnected);
                             Changed = true;
+                            if (IsConnected && c.Splitter->mOutputRates[i] != 1.0)
+                            {
+                                c.Splitter->mOutputRates[i] = 1.0;
+                                Changed = true;
+                            }
+                            if (!IsConnected && c.Splitter->mOutputRates[i] != 0.0)
+                            {
+                                c.Splitter->mOutputRates[i] = 0.0;
+                                Changed = true;
+                            }
                         }
                     }
                     if (IsConnected != IsSet(OutputState,EOutputState::Connected))
@@ -611,6 +627,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
     {
         auto Belt = Cast<AFGBuildableConveyorBase>(Root->mInputs[0]->GetConnection()->GetOuterBuildable());
         Root->mTargetRate = Belt->GetSpeed() * 0.5;
+        Root->RescaleOutputRates();
     }
 
     if (Root->mTargetRate > 0)
@@ -625,57 +642,13 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
                         continue;
 
                     Splitter.Outputs[i]->mTargetRate = (Splitter.Splitter->mTargetRate * Splitter.Splitter->mItemsPerCycle[i]) / Splitter.Splitter->mCycleLength;
+                    Splitter.Splitter->RescaleOutputRates();
                 }
             }
         }
     }
     
     return SplitterCount;
-}
-
-void AMFGBuildableAutoSplitter::UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source)
-{
-    UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading splitter to Auto Splitter"));
-    
-    // WARNING
-    // this is a REALLY ugly hack, but should be safe as long as we ONLY access the otherwise off-limits
-    // protected members mInputs and mOutputs of the source through this reference, and as long as there
-    // is no funny virtual inheritance business going on, which there shouldn't be.
-    AMFGBuildableAutoSplitter& DowncastedSource = static_cast<AMFGBuildableAutoSplitter&>(Source);
-
-    for (int32 i = 0 ; i < mInputs.Num() ; ++i)
-    {
-        auto Input = mInputs[i];
-        if (Input)
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Target input %d: %s"),i,Input->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
-            if (Input->IsConnected())
-            {
-                UE_LOG(LogAutoSplitters,Display,TEXT("Connected target input %d : %d, connected: %s"),i,Input->GetConnection(),Input->GetConnection()->IsConnected());
-                if (Input->GetConnection()->IsConnected())
-                {
-                    UE_LOG(LogAutoSplitters,Display,TEXT("Connected target input %d : connected to: %s"),i,Input->GetConnection()->GetConnection());					
-                }
-            }
-        }
-    }
-
-    for (int32 i = 0 ; i < mOutputs.Num() ; ++i)
-    {
-        auto Output = mOutputs[i];
-        if (Output)
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Target output %d: %s"),i,Output->IsConnected() ? TEXT("Connected") : TEXT("Not connected"));
-            if (Output->IsConnected())
-            {
-                UE_LOG(LogAutoSplitters,Display,TEXT("Connected target output %d : %d, connected: %s"),i,Output->GetConnection(),Output->GetConnection()->IsConnected());
-                if (Output->GetConnection()->IsConnected())
-                {
-                    UE_LOG(LogAutoSplitters,Display,TEXT("Connected target output %d : connected to: %s"),i,Output->GetConnection()->GetConnection());					
-                }
-            }
-        }
-    }
 }
 
 std::tuple<AMFGBuildableAutoSplitter*,float> AMFGBuildableAutoSplitter::FindAutoSplitterAndMaxBeltRate(
@@ -729,4 +702,19 @@ void AMFGBuildableAutoSplitter::SetSplitterVersion(uint32 Version)
         UE_LOG(LogAutoSplitters,Fatal,TEXT("Cannot downgrade Auto Splitter from version %d to %d"),GetSplitterVersion(),Version);
     }
     mPersistentState = (mPersistentState & ~0xFFu) | (Version & 0xFFu);
+}
+
+void AMFGBuildableAutoSplitter::RescaleOutputRates()
+{
+    float TotalOutputRate = 0;
+    for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+    {
+        TotalOutputRate += mOutputRates[i] * IsSet(mOutputStates[i],EOutputState::Connected);
+    }
+
+    float Factor = mTargetRate / TotalOutputRate;
+    for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+    {
+        mOutputRates[i] *= Factor;
+    }    
 }

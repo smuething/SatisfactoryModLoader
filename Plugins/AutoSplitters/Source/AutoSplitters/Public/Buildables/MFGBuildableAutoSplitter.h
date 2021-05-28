@@ -204,8 +204,6 @@ private:
                                   AMFGBuildableAutoSplitter* Splitter, AMFGBuildableAutoSplitter* Root,
                                   const int32 Level);
 
-    virtual void UpgradeFromSplitter(AFGBuildableAttachmentSplitter& Source);
-
     void SetSplitterVersion(uint32 Version);
 
     FORCEINLINE void SetPersistentFlag(int32 Flag, bool Value = true)
@@ -222,6 +220,8 @@ private:
     {
         mPersistentState ^= Flag;
     }
+
+    void RescaleOutputRates();
 
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;
