@@ -48,8 +48,16 @@ constexpr int32 SetFlag(int32 BitField, EOutputState flag, bool Enabled)
         return ClearFlag(BitField,flag);
 }
 
+constexpr static int32 Pow_Constexpr(int32 Base, int32 Exponent)
+{
+    int32 Result = 1;
+    while (Exponent-- > 0)
+        Result *= Base;
+    return Result;
+}
+
 /**
- * 
+ *
  */
 UCLASS()
 class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmentSplitter
@@ -63,18 +71,27 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     static constexpr uint32 NEWLY_CONSTRUCTED = 1 <<  9;
 
     static constexpr uint32 VERSION = 1;
-    
+
+    static constexpr int32 MAX_INVENTORY_SIZE = 10;
+    static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.5f;
+    static constexpr int32 NUM_OUTPUTS = 3;
+    static constexpr float BLOCK_DETECTION_THRESHOLD = 0.5f;
+
+    static constexpr int32 FRACTIONAL_RATE_DIGITS = 3;
+    static constexpr int32 FRACTIONAL_RATE_MULTIPLIER = Pow_Constexpr(10,FRACTIONAL_RATE_DIGITS);
+    static constexpr float INV_FRACTIONAL_RATE_MULTIPLIER = 1.0f / FRACTIONAL_RATE_MULTIPLIER;
+
 public:
-    
+
     AMFGBuildableAutoSplitter();
 
     virtual void BeginPlay() override;
     virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
-    
+
 protected:
 
     virtual void Factory_Tick(float dt) override;
-    virtual bool Factory_GrabOutput_Implementation( UFGFactoryConnectionComponent* connection, FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf< UFGItemDescriptor > type ) override;	
+    virtual bool Factory_GrabOutput_Implementation( UFGFactoryConnectionComponent* connection, FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf< UFGItemDescriptor > type ) override;
     virtual void FillDistributionTable(float dt) override;
 
 private:
@@ -89,15 +106,10 @@ private:
 
 public:
 
-    static constexpr int32 MAX_INVENTORY_SIZE = 16;
-    static constexpr float EXPONENTIAL_AVERAGE_WEIGHT = 0.75f;
-    static constexpr int32 NUM_OUTPUTS = 3;
-    static constexpr float BLOCK_DETECTION_THRESHOLD = 0.5f;
+    UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
+    TArray<float> mOutputRates_DEPRECATED;
 
-    UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
-    TArray<float> mOutputRates;
-
-    UPROPERTY(SaveGame, EditDefaultsOnly, BlueprintReadOnly, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mOutputStates;
 
     UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
@@ -107,7 +119,10 @@ public:
     uint32 mPersistentState;
 
     UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
-    float mTargetRate;
+    int32 mTargetInputRate;
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    TArray<int32> mIntegralOutputRates;
 
     UPROPERTY(Transient, BlueprintReadOnly)
     AMFGBuildableAutoSplitter* mRootSplitter;
@@ -124,15 +139,7 @@ public:
     UPROPERTY(Transient,BlueprintReadOnly)
     int32 mCycleLength;
 
-    UFUNCTION(BlueprintCallable)
-    float GetTargetOutputRate(int32 Output) const
-    {
-        if (Output < 0 || Output > NUM_OUTPUTS - 1)
-            return 0;
-        return (mTargetRate*mItemsPerCycle[Output]) / mCycleLength;
-    }
-
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable,BlueprintPure)
     bool IsTargetRateAutomatic() const
     {
         return !IsPersistentFlagSet(MANUAL_INPUT_RATE);
@@ -143,6 +150,9 @@ public:
 
     UFUNCTION(BlueprintCallable)
     bool SetTargetRate(float Rate);
+
+    UFUNCTION(BlueprintCallable,BlueprintPure)
+    float GetOutputRate(int32 Output) const;
 
     UFUNCTION(BlueprintCallable)
     bool SetOutputRate(int32 Output, float Rate);
@@ -197,7 +207,7 @@ public:
     }
 
 private:
-    static std::tuple<AMFGBuildableAutoSplitter*,float>
+    static std::tuple<AMFGBuildableAutoSplitter*,int32>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
     static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
@@ -233,9 +243,9 @@ private:
 
     bool mBalancingRequired;
     bool mCachedIsInputConnected;
+    bool mNeedsSetupDistribution;
     int32 mCachedInventoryItemCount;
     float mItemRate;
     float mCycleTime;
     int32 mReallyGrabbed;
 };
-
