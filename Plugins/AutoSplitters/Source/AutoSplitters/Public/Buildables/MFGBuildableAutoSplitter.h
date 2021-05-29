@@ -140,6 +140,12 @@ public:
     int32 mCycleLength;
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
+    static int32 GetFractionalRateDigits()
+    {
+        return FRACTIONAL_RATE_DIGITS;
+    }
+
+    UFUNCTION(BlueprintCallable,BlueprintPure)
     bool IsTargetRateAutomatic() const
     {
         return !IsPersistentFlagSet(MANUAL_INPUT_RATE);
