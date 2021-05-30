@@ -171,7 +171,7 @@ public:
     bool SetOutputAutomatic(int32 Output, bool Automatic);
 
     UFUNCTION(BlueprintCallable)
-    int32 BalanceNetwork(bool RootOnly = false);
+    static int32 BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
 
     uint32 GetSplitterVersion() const
     {
@@ -182,17 +182,6 @@ public:
     {
         return !!(mPersistentState & Flag);
     }
-
-    struct FConnections
-    {
-        AMFGBuildableAutoSplitter* Splitter;
-        std::array<AMFGBuildableAutoSplitter*,3> Outputs;
-
-        explicit FConnections(AMFGBuildableAutoSplitter* Splitter)
-            : Splitter(Splitter)
-            , Outputs({nullptr})
-        {}
-    };
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
     int32 GetInventorySize() const
@@ -216,13 +205,39 @@ public:
 #endif
     }
 
+    struct FNetworkNode
+    {
+        AMFGBuildableAutoSplitter* Splitter;
+        FNetworkNode* Input;
+        std::array<FNetworkNode*,NUM_OUTPUTS> Outputs;
+        int32 FixedDemand;
+        int32 Shares;
+        int32 AllocatedInputRate;
+        std::array<int32,NUM_OUTPUTS> AllocatedOutputRates;
+
+        explicit FNetworkNode(AMFGBuildableAutoSplitter* Splitter, FNetworkNode* Input = nullptr)
+            : Splitter(Splitter)
+            , Input(Input)
+            , Outputs({nullptr})
+            , FixedDemand(0)
+            , Shares(0)
+            , AllocatedInputRate(0)
+            , AllocatedOutputRates({0})
+        {}
+    };
+
 private:
     static std::tuple<AMFGBuildableAutoSplitter*,int32>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
-    static void DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
-                                  AMFGBuildableAutoSplitter* Splitter, AMFGBuildableAutoSplitter* Root,
-                                  const int32 Level);
+    static void DiscoverHierarchy(
+        TArray<TArray<FNetworkNode>>& Nodes,
+        AMFGBuildableAutoSplitter* Splitter,
+        const int32 Level,
+        FNetworkNode* InputNode,
+        const int32 ChildInParent,
+        AMFGBuildableAutoSplitter* Root
+    );
 
     void SetSplitterVersion(uint32 Version);
 

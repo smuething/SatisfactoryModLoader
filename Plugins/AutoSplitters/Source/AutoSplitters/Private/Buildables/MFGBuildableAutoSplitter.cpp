@@ -83,18 +83,16 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
             mOutputStates[i] = SetFlag(mOutputStates[i],EOutputState::AutoSplitter,OutputSplitter != nullptr);
         }
         UE_LOG(LogAutoSplitters,Display,TEXT("Start output rates: %d %d %d"),mIntegralOutputRates[0],mIntegralOutputRates[1],mIntegralOutputRates[2]);
-        SetupDistribution(false);
-        UE_LOG(LogAutoSplitters,Display,TEXT("After setup distribution: Output rates: %d %d %d ItemsPerCycle: %d %d %d"),
+        BalanceNetwork(this);
+        UE_LOG(LogAutoSplitters,Display,TEXT("After network balancing: Output rates: %d %d %d ItemsPerCycle: %d %d %d"),
             mIntegralOutputRates[0],mIntegralOutputRates[1],mIntegralOutputRates[2],
             mItemsPerCycle[0],mItemsPerCycle[1],mItemsPerCycle[2]);
-        RescaleOutputRates();
-        UE_LOG(LogAutoSplitters,Display,TEXT("After rescale: output rates: %d %d %d"),mIntegralOutputRates[0],mIntegralOutputRates[1],mIntegralOutputRates[2]);
         mNeedsSetupDistribution = false;
     }
 
     if (mBalancingRequired)
     {
-        BalanceNetwork(true);
+        BalanceNetwork(this,true);
     }
 
     for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
@@ -126,7 +124,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
 
     if (NeedsBalancing)
-        BalanceNetwork();
+        BalanceNetwork(this);
 
     mCachedInventoryItemCount = 0;
     auto PopulatedInventorySlots = make_array<MAX_INVENTORY_SIZE>(-1);
@@ -352,7 +350,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
         return;
     }
 
-    RescaleOutputRates();
+    // RescaleOutputRates();
 
     // calculate item counts per cycle
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
@@ -521,7 +519,7 @@ bool AMFGBuildableAutoSplitter::SetTargetInputRate(float Rate)
     mTargetInputRate = IntRate;
 
     if (Changed)
-        BalanceNetwork();
+        BalanceNetwork(this);
 
     return true;
 }
@@ -631,7 +629,7 @@ bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Ra
 
 
     SetupDistribution();
-    BalanceNetwork();
+    BalanceNetwork(this);
 
     return true;
 }
@@ -648,7 +646,7 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
     if (Automatic)
     {
         mOutputStates[Output] = SetFlag(mOutputStates[Output],EOutputState::Automatic);
-        BalanceNetwork();
+        BalanceNetwork(this);
     }
     else
     {
@@ -659,7 +657,7 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
             {
                 mIntegralOutputRates[Output] = FRACTIONAL_RATE_MULTIPLIER;
                 SetupDistribution();
-                BalanceNetwork();
+                BalanceNetwork(this);
             }
         }
     }
@@ -667,12 +665,21 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
     return true;
 }
 
-int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
+int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly)
 {
-    mBalancingRequired = false;
+    if (!ForSplitter)
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Error,
+            TEXT("BalanceNetwork() must be called with a valid ForSplitter argument, aborting!")
+            );
+        return -1;
+    }
+
     TSet<AMFGBuildableAutoSplitter*> SplitterSet;
     // start by going upstream
-    auto Root = this;
+    auto Root = ForSplitter;
     SplitterSet.Add(Root);
     for (
         auto [Current,Rate] = FindAutoSplitterAndMaxBeltRate(Root->mInputs[0],false) ;
@@ -689,106 +696,169 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
         Root = Current;
     }
 
-    if (RootOnly && this != Root)
+    if (RootOnly && ForSplitter != Root)
     {
         Root->mBalancingRequired = true;
         return -1;
     }
 
     // Now walk the tree to discover the whole network
-    TArray<TArray<FConnections>> SplitterHierarchy;
-    DiscoverHierarchy(SplitterHierarchy,Root,Root,0);
-
-    // We have found all connected AutoSplitters, now let's re-balance
-    TMap<AMFGBuildableAutoSplitter*,int32> InputRates;
-
+    TArray<TArray<FNetworkNode>> Network;
     int32 SplitterCount = 0;
-    for (int32 Level = SplitterHierarchy.Num() - 1 ; Level >= 0 ; --Level)
+    DiscoverHierarchy(Network,Root,0,nullptr,INT32_MAX,Root);
+
+    for (int32 Level = Network.Num() - 1 ; Level >= 0 ; --Level)
     {
-        for (auto& c : SplitterHierarchy[Level])
+        for (auto& Node: Network[Level])
         {
             ++SplitterCount;
-            bool Changed = false;
-            int32 InputRate = 0;
-            for (int32 i = 0; i < NUM_OUTPUTS; ++i)
-            {
-                auto& OutputState = c.Splitter->mOutputStates[i];
-                const bool IsConnected = c.Splitter->mOutputs[i]->IsConnected();
 
-                if (c.Outputs[i])
+            auto& Splitter = *Node.Splitter;
+            Splitter.mBalancingRequired = false;
+
+            for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+            {
+                if (!Splitter.mOutputs[i]->IsConnected())
+                    continue;
+
+                if (Node.Outputs[i])
                 {
-                    OutputState = SetFlag(OutputState,EOutputState::AutoSplitter);
-                    if (IsSet(OutputState,EOutputState::Automatic))
+                    auto& OutputNode = *Node.Outputs[i];
+                    auto& OutputSplitter = *OutputNode.Splitter;
+                    if (OutputSplitter.IsPersistentFlagSet(MANUAL_INPUT_RATE))
                     {
-                        const auto OutputRate = InputRates[c.Outputs[i]];
-                        if (OutputRate != c.Splitter->mIntegralOutputRates[i])
-                        {
-                            c.Splitter->mIntegralOutputRates[i] = OutputRate;
-                            Changed = true;
-                        }
+                        ClearFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
+                        Node.FixedDemand += OutputNode.FixedDemand;
+                    }
+                    else
+                    {
+                        Node.Shares += OutputNode.Shares;
+                        Node.FixedDemand += OutputNode.FixedDemand;
                     }
                 }
                 else
                 {
-                    OutputState = ClearFlag(OutputState,EOutputState::AutoSplitter);
-                    if (IsSet(OutputState,EOutputState::Automatic))
+                    if (IsSet(Splitter.mOutputStates[i],EOutputState::Automatic))
                     {
-                        if (IsConnected != IsSet(OutputState,EOutputState::Connected))
-                        {
-                            OutputState = SetFlag(OutputState,EOutputState::Connected,IsConnected);
-                            Changed = true;
-                            if (IsConnected && c.Splitter->mIntegralOutputRates[i] != FRACTIONAL_RATE_MULTIPLIER)
-                            {
-                                c.Splitter->mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
-                                Changed = true;
-                            }
-                            if (!IsConnected && c.Splitter->mIntegralOutputRates[i] != 0)
-                            {
-                                c.Splitter->mIntegralOutputRates[i] = 0;
-                                Changed = true;
-                            }
-                        }
+                        ++Node.Shares;
                     }
-                    if (IsConnected != IsSet(OutputState,EOutputState::Connected))
+                    else
                     {
-                        OutputState = SetFlag(OutputState,EOutputState::Connected,IsConnected);
-                        Changed = true;
+                        Node.FixedDemand += Splitter.mIntegralOutputRates[i];
                     }
                 }
-
-                // only count automatic outputs that have a belt connected
-                if (!IsSet(OutputState,EOutputState::Automatic) || IsConnected)
-                    InputRate += c.Splitter->mIntegralOutputRates[i];
             }
-
-            if (Changed)
-                c.Splitter->SetupDistribution();
-
-            InputRates.Add(c.Splitter,InputRate);
         }
     }
 
-    if (!Root->IsPersistentFlagSet(MANUAL_INPUT_RATE))
+    // Ok, now for the hard part: distribute the available items
+
+    Network[0][0].AllocatedInputRate = Root->mTargetInputRate;
+    bool Valid = true;
+    for (auto& Level : Network)
     {
-        auto Belt = Cast<AFGBuildableConveyorBase>(Root->mInputs[0]->GetConnection()->GetOuterBuildable());
-        Root->mTargetInputRate = static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_MULTIPLIER / 2);
-        Root->RescaleOutputRates();
+        if (!Valid)
+            break;
+        for (auto& Node : Level)
+        {
+            auto& Splitter = *Node.Splitter;
+            if (Splitter.mTargetInputRate < Node.FixedDemand)
+            {
+                Valid = false;
+                break;
+            }
+
+            int32 AvailableForShares = Node.AllocatedInputRate - Node.FixedDemand;
+
+            if (AvailableForShares < 0)
+            {
+                UE_LOG(
+                    LogAutoSplitters,
+                    Warning,
+                    TEXT("Not enough available input for requested fixed output rates: demand=%d available=%d"),
+                    Node.FixedDemand,
+                    Node.AllocatedInputRate
+                    );
+            }
+
+            // Avoid division by zero
+            auto [RatePerShare,Remainder] = Node.Shares > 0 ? std::div(AvailableForShares, Node.Shares) : std::div_t{0,0};
+
+            if (Remainder != 0)
+            {
+                UE_LOG(
+                    LogAutoSplitters,
+                    Warning,
+                    TEXT("Could not evenly distribute rate among shares: available=%d shares=%d rate=%d remainder=%d"),
+                    AvailableForShares,
+                    Node.Shares,
+                    RatePerShare,
+                    Remainder
+                );
+            }
+
+            for (int32 i = 0; i < NUM_OUTPUTS; ++i)
+            {
+                if (Node.Outputs[i])
+                {
+                    Node.AllocatedOutputRates[i] = Node.Outputs[i]->FixedDemand + Node.Outputs[i]->Shares *
+                        RatePerShare;
+                    Node.Outputs[i]->AllocatedInputRate = Node.AllocatedOutputRates[i];
+                }
+                else
+                {
+                    if (IsSet(Splitter.mOutputStates[i], EOutputState::Connected))
+                    {
+                        if (IsSet(Splitter.mOutputStates[i], EOutputState::Automatic))
+                        {
+                            Node.AllocatedOutputRates[i] = RatePerShare;
+                        }
+                        else
+                        {
+                            Node.AllocatedOutputRates[i] = Splitter.mIntegralOutputRates[i];
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    if (Root->mTargetInputRate > 0)
+    if (!Valid)
     {
-        for (auto& Level : SplitterHierarchy)
-        {
-            for (auto& Splitter : Level)
-            {
-                for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
-                {
-                    if (!Splitter.Outputs[i])
-                        continue;
+        UE_LOG(
+            LogAutoSplitters,
+            Warning,
+            TEXT("Invalid network configuration, aborting network balancing")
+            );
+        return SplitterCount;
+    }
 
-                    Splitter.Outputs[i]->mTargetInputRate = (Splitter.Splitter->mTargetInputRate * Splitter.Splitter->mItemsPerCycle[i]) / Splitter.Splitter->mCycleLength;
-                    Splitter.Splitter->RescaleOutputRates();
+    // we have a consistent new network setup, now switch the network to the new settings
+    for (auto& Level: Network)
+    {
+        for (auto& Node : Level)
+        {
+            auto& Splitter = *Node.Splitter;
+            bool NeedsSetupDistribution = false;
+
+            if (Splitter.mTargetInputRate != Node.AllocatedInputRate)
+            {
+                NeedsSetupDistribution = true;
+                Splitter.mTargetInputRate = Node.AllocatedInputRate;
+            }
+
+            for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+            {
+                if (IsSet(Splitter.mOutputStates[i],EOutputState::Connected) && Splitter.mIntegralOutputRates[i] != Node.AllocatedOutputRates[i])
+                {
+                    NeedsSetupDistribution = true;
+                    Splitter.mIntegralOutputRates[i] = Node.AllocatedOutputRates[i];
                 }
+            }
+
+            if (NeedsSetupDistribution)
+            {
+                Splitter.SetupDistribution();
             }
         }
     }
@@ -815,24 +885,30 @@ std::tuple<AMFGBuildableAutoSplitter*,int32> AMFGBuildableAutoSplitter::FindAuto
     return {nullptr,0};
 }
 
-void AMFGBuildableAutoSplitter::DiscoverHierarchy(TArray<TArray<FConnections>>& Splitters,
-                                                  AMFGBuildableAutoSplitter* Splitter,
-                                                  AMFGBuildableAutoSplitter* Root,
-                                                  const int32 Level)
+void AMFGBuildableAutoSplitter::DiscoverHierarchy(
+    TArray<TArray<FNetworkNode>>& Nodes,
+    AMFGBuildableAutoSplitter* Splitter,
+    const int32 Level,
+    FNetworkNode* InputNode,
+    const int32 ChildInParent,
+    AMFGBuildableAutoSplitter* Root
+)
 {
-    if (!Splitters.IsValidIndex(Level))
+    if (!Nodes.IsValidIndex(Level))
     {
-        Splitters.Emplace();
+        Nodes.Emplace();
     }
     Splitter->mRootSplitter = Root;
-    auto& Connections = Splitters[Level][Splitters[Level].Emplace(Splitter)];
-    int32 i = 0;
-    for (auto Connection : Splitter->mOutputs)
+    auto& Node = Nodes[Level][Nodes[Level].Emplace(Splitter,InputNode)];
+    if (InputNode)
     {
-        const auto [Downstream,_] = FindAutoSplitterAndMaxBeltRate(Connection, true);
-        Connections.Outputs[i++] = Downstream;
+        InputNode->Outputs[ChildInParent] = &Node;
+    }
+    for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+    {
+        const auto [Downstream,_] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
         if (Downstream)
-            DiscoverHierarchy(Splitters, Downstream, Root, Level + 1);
+            DiscoverHierarchy(Nodes, Downstream, Level + 1, &Node, i, Root);
     }
 }
 
