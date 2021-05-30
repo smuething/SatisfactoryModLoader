@@ -9,9 +9,11 @@
 #include "Buildables/FGBuildableConveyorBase.h"
 
 #if AUTO_SPLITTERS_DEBUG
-#define DEBUG_SPLITTER mDebug
+#define DEBUG_THIS_SPLITTER mDebug
+#define DEBUG_SPLITTER(splitter) ((splitter).mDebug)
 #else
-#define DEBUG_SPLITTER false
+#define DEBUG_THIS_SPLITTER false
+#define DEBUG_SPLITTER(splitter) false
 #endif
 
 template<std::size_t n, typename T>
@@ -83,7 +85,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
             mOutputStates[i] = SetFlag(mOutputStates[i],EOutputState::AutoSplitter,OutputSplitter != nullptr);
         }
         UE_LOG(LogAutoSplitters,Display,TEXT("Start output rates: %d %d %d"),mIntegralOutputRates[0],mIntegralOutputRates[1],mIntegralOutputRates[2]);
-        BalanceNetwork(this);
+        BalanceNetwork_Internal(this);
         UE_LOG(LogAutoSplitters,Display,TEXT("After network balancing: Output rates: %d %d %d ItemsPerCycle: %d %d %d"),
             mIntegralOutputRates[0],mIntegralOutputRates[1],mIntegralOutputRates[2],
             mItemsPerCycle[0],mItemsPerCycle[1],mItemsPerCycle[2]);
@@ -92,7 +94,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 
     if (mBalancingRequired)
     {
-        BalanceNetwork(this,true);
+        BalanceNetwork_Internal(this,true);
     }
 
     for (int i = 0 ; i < NUM_OUTPUTS ; ++i)
@@ -124,7 +126,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
 
     if (NeedsBalancing)
-        BalanceNetwork(this);
+        BalanceNetwork_Internal(this);
 
     mCachedInventoryItemCount = 0;
     auto PopulatedInventorySlots = make_array<MAX_INVENTORY_SIZE>(-1);
@@ -180,7 +182,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
         std::array<bool,NUM_OUTPUTS> Penalized = {false,false,false};
         while (IsOutputBlocked(Next) && Next >= 0)
         {
-            if (DEBUG_SPLITTER)
+            if (DEBUG_THIS_SPLITTER)
             {
                 UE_LOG(LogAutoSplitters,Display,TEXT("Output %d is blocked, reassigning item and penalizing output"),Next);
             }
@@ -214,7 +216,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
             mInventorySlotEnd[Next] = Slot + 1;
             ++mAssignedItems[Next];
         }
-        else if (DEBUG_SPLITTER) {
+        else if (DEBUG_THIS_SPLITTER) {
             UE_LOG(LogAutoSplitters,Warning,TEXT("All eligible outputs blocked, cannot assign item!"))
         }
 
@@ -230,7 +232,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
         }
     }
 
-    if (DEBUG_SPLITTER)
+    if (DEBUG_THIS_SPLITTER)
     {
         UE_LOG(LogAutoSplitters,Display,TEXT("Assigned items (jammed): 0=%d (%f) 1=%d (%f) 2=%d (%f)"),
             mAssignedItems[0],mBlockedFor[0],
@@ -314,7 +316,7 @@ bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConn
             ++mReallyGrabbed;
             mNextInventorySlot[Output] = Slot + 1;
 
-            if (DEBUG_SPLITTER)
+            if (DEBUG_THIS_SPLITTER)
             {
                 UE_LOG(LogAutoSplitters,Display,TEXT("Sent item out of output %d"),Output);
             }
@@ -331,6 +333,19 @@ bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConn
 void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 {
 
+    if (DEBUG_THIS_SPLITTER)
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Display,
+            TEXT("SetupDistribution() input=%d outputs=(%d %d %d)"),
+            mTargetInputRate,
+            mIntegralOutputRates[0],
+            mIntegralOutputRates[1],
+            mIntegralOutputRates[2]
+            );
+    }
+
     if (!LoadingSave)
     {
         for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
@@ -346,7 +361,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
     {
         mIntegralOutputRates[0] = mIntegralOutputRates[1] = mIntegralOutputRates[2] = FRACTIONAL_RATE_MULTIPLIER;
         mItemsPerCycle[0] = mItemsPerCycle[1] = mItemsPerCycle[2] = 4;
-        RescaleOutputRates();
+        //RescaleOutputRates();
         return;
     }
 
@@ -362,7 +377,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
     if (GCD == 0)
     {
-        if (DEBUG_SPLITTER)
+        if (DEBUG_THIS_SPLITTER)
         {
             UE_LOG(LogAutoSplitters,Display,TEXT("Nothing connected, chilling"));
         }
@@ -411,7 +426,7 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
 
 void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, const bool Reset)
 {
-    if (DEBUG_SPLITTER)
+    if (DEBUG_THIS_SPLITTER)
     {
         UE_LOG(LogAutoSplitters,Display,TEXT("PrepareCycle(%s,%s) cycleTime=%f grabbed=%d"),
             AllowCycleExtension ? TEXT("true") : TEXT("false"),
@@ -436,7 +451,7 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 
         if (AllowCycleExtension && mCycleTime < 2.0)
         {
-            if (DEBUG_SPLITTER)
+            if (DEBUG_THIS_SPLITTER)
             {
                 UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too short (%f), doubling cycle length to %d"),mCycleTime,2*mCycleLength);
             }
@@ -452,7 +467,7 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
 
             if (CanShortenCycle)
             {
-                if (DEBUG_SPLITTER)
+                if (DEBUG_THIS_SPLITTER)
                 {
                     UE_LOG(LogAutoSplitters,Display,TEXT("Cycle time too long (%f), halving cycle length to %d"),mCycleTime,mCycleLength/2);
                 }
@@ -519,7 +534,7 @@ bool AMFGBuildableAutoSplitter::SetTargetInputRate(float Rate)
     mTargetInputRate = IntRate;
 
     if (Changed)
-        BalanceNetwork(this);
+        BalanceNetwork_Internal(this);
 
     return true;
 }
@@ -535,103 +550,70 @@ float AMFGBuildableAutoSplitter::GetOutputRate(int32 Output) const
 bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Rate)
 {
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Error,
+            TEXT("Invalid output index: %d"),
+            Output
+            );
         return false;
+    }
 
     auto IntRate = static_cast<int32>(Rate * FRACTIONAL_RATE_MULTIPLIER);
 
     if (IntRate < 0 || IntRate > 780 * FRACTIONAL_RATE_MULTIPLIER)
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Error,
+            TEXT("Invalid output rate: %f (must be between 0 and 780)"),
+            Output
+            );
         return false;
+    }
 
-    if (!IsSet(mOutputStates[Output],EOutputState::Automatic))
+    if (IsSet(mOutputStates[Output],EOutputState::Automatic))
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Display,
+            TEXT("Output %d is automatic, ignoring rate value"),
+            Output
+            );
         return false;
+    }
 
     if (mIntegralOutputRates[Output] == Rate)
         return true;
 
-    auto AutomaticOutputs = make_array<NUM_OUTPUTS>(-1);
-    int32 n = 0;
-    int32 AvailableForDistribution = 0;
+    int32 OldRate = mIntegralOutputRates[Output];
+    mIntegralOutputRates[Output] = IntRate;
 
-    auto NewOutputRates = mIntegralOutputRates;
-
-    for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+    auto [DownstreamAutoSplitter,_] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
+    bool OldManualInputRate = false;
+    int32 OldTargetInputRate = 0;
+    if (DownstreamAutoSplitter)
     {
-        if (IsSet(mOutputStates[i],EOutputState::Automatic) && IsSet(mOutputStates[i],EOutputState::Connected))
+        OldManualInputRate = DownstreamAutoSplitter->IsPersistentFlagSet(MANUAL_INPUT_RATE);
+        OldTargetInputRate = DownstreamAutoSplitter->mTargetInputRate;
+        DownstreamAutoSplitter->SetPersistentFlag(MANUAL_INPUT_RATE);
+        DownstreamAutoSplitter->mTargetInputRate = IntRate;
+    }
+
+    auto [valid,_2] = BalanceNetwork_Internal(this);
+
+    if (!valid)
+    {
+        mIntegralOutputRates[Output] = OldRate;
+        if (DownstreamAutoSplitter)
         {
-            AutomaticOutputs[n++] = i;
-            AvailableForDistribution += mIntegralOutputRates[i];
+            DownstreamAutoSplitter->SetPersistentFlag(MANUAL_INPUT_RATE,OldManualInputRate);
+            DownstreamAutoSplitter->mTargetInputRate = OldTargetInputRate;
         }
     }
 
-    if (n > 0)
-    {
-        int32 Difference = Rate - mIntegralOutputRates[Output];
-        if (Difference < 0)
-        {
-            if (AvailableForDistribution > 0)
-            {
-                for (auto i : AutomaticOutputs)
-                {
-                    NewOutputRates[i] -= (Difference * mIntegralOutputRates[i]) / AvailableForDistribution;
-                }
-            }
-            else
-            {
-                for (auto i : AutomaticOutputs)
-                {
-                    NewOutputRates[i] = -Difference / n;
-                }
-            }
-        }
-        else
-        {
-            int32 RemainingDifference = Difference;
-            if (AvailableForDistribution > Difference)
-            {
-                for (auto i : AutomaticOutputs)
-                {
-                    int32 NewRate = std::max(0,mIntegralOutputRates[i] - Difference * mIntegralOutputRates[i] / AvailableForDistribution);
-                    NewOutputRates[i] = NewRate;
-                    RemainingDifference -= mIntegralOutputRates[i] - NewRate;
-                }
-                if (RemainingDifference > 0)
-                {
-                    for (auto i : AutomaticOutputs)
-                    {
-                        if (NewOutputRates[i] > 0)
-                        {
-                            NewOutputRates[i] -= RemainingDifference;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                if (!IsTargetRateAutomatic() || !mCachedIsInputConnected)
-                    return false;
-
-                auto [_,MaxInputRate] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
-
-                if (Difference - AvailableForDistribution > static_cast<int32>(MaxInputRate) * FRACTIONAL_RATE_DIGITS - mTargetInputRate)
-                    return false;
-
-                for (auto i : AutomaticOutputs)
-                {
-                    NewOutputRates[i] = 0;
-                }
-
-                mTargetInputRate += Difference - AvailableForDistribution;
-            }
-        }
-        NewOutputRates[Output] = IntRate;
-        mIntegralOutputRates = NewOutputRates;
-    }
-
-
-    SetupDistribution();
-    BalanceNetwork(this);
-
-    return true;
+    return valid;
 }
 
 bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
@@ -643,29 +625,46 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
     if (Automatic == IsSet(mOutputStates[Output],EOutputState::Automatic))
         return true;
 
-    if (Automatic)
+    auto [DownstreamAutoSplitter,_] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
+    if (DownstreamAutoSplitter)
     {
-        mOutputStates[Output] = SetFlag(mOutputStates[Output],EOutputState::Automatic);
-        BalanceNetwork(this);
+        DownstreamAutoSplitter->SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
     }
     else
     {
-        mOutputStates[Output] = ClearFlag(mOutputStates[Output],EOutputState::Automatic);
-        if (IsSet(mOutputStates[Output],EOutputState::Connected))
-        {
-            if (mIntegralOutputRates[Output] != FRACTIONAL_RATE_MULTIPLIER)
-            {
-                mIntegralOutputRates[Output] = FRACTIONAL_RATE_MULTIPLIER;
-                SetupDistribution();
-                BalanceNetwork(this);
-            }
-        }
+        mOutputStates[Output] = SetFlag(mOutputStates[Output],EOutputState::Automatic,Automatic);
     }
 
-    return true;
+    auto [valid,_2] = BalanceNetwork_Internal(this);
+    if (!valid)
+    {
+        mOutputStates[Output] = SetFlag(mOutputStates[Output], EOutputState::Automatic,!Automatic);
+        if (DownstreamAutoSplitter)
+        {
+            DownstreamAutoSplitter->SetPersistentFlag(MANUAL_INPUT_RATE,Automatic);
+        }
+        UE_LOG(
+            LogAutoSplitters,
+            Warning,
+            TEXT("Failed to set output %d to %s"),
+            Output,
+            Automatic ? TEXT("automatic") : TEXT("manual")
+        );
+    }
+    else
+    {
+        UE_LOG(
+            LogAutoSplitters,
+            Display,
+            TEXT("Set output %d to %s"),
+            Output,
+            Automatic ? TEXT("automatic") : TEXT("manual")
+        );
+    }
+    return valid;
 }
 
-int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly)
+std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly)
 {
     if (!ForSplitter)
     {
@@ -674,7 +673,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
             Error,
             TEXT("BalanceNetwork() must be called with a valid ForSplitter argument, aborting!")
             );
-        return -1;
+        return {false,-1};
     }
 
     TSet<AMFGBuildableAutoSplitter*> SplitterSet;
@@ -690,7 +689,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
         if (SplitterSet.Contains(Current))
         {
             UE_LOG(LogAutoSplitters,Warning,TEXT("Cycle in auto splitter network detected, bailing out"));
-            return -1;
+            return {false,-1};
         }
         SplitterSet.Add(Current);
         Root = Current;
@@ -699,7 +698,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
     if (RootOnly && ForSplitter != Root)
     {
         Root->mBalancingRequired = true;
-        return -1;
+        return {false,-1};
     }
 
     // Now walk the tree to discover the whole network
@@ -709,6 +708,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
 
     for (int32 Level = Network.Num() - 1 ; Level >= 0 ; --Level)
     {
+        int32 nidx = 0;
         for (auto& Node: Network[Level])
         {
             ++SplitterCount;
@@ -727,11 +727,15 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
                     auto& OutputSplitter = *OutputNode.Splitter;
                     if (OutputSplitter.IsPersistentFlagSet(MANUAL_INPUT_RATE))
                     {
-                        ClearFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
-                        Node.FixedDemand += OutputNode.FixedDemand;
+                        UE_LOG(LogAutoSplitters,Display,TEXT("Setting output %d of splitter %d %d to manual"),i,Level,nidx);
+                        Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
+                        UE_LOG(LogAutoSplitters,Display,TEXT("Recording target input rate %d of splitter %d %d"),OutputSplitter.mTargetInputRate,Level,nidx);
+                        Node.FixedDemand += OutputSplitter.mTargetInputRate;
                     }
                     else
                     {
+                        UE_LOG(LogAutoSplitters,Display,TEXT("Setting output %d of splitter %d %d to automatic"),i,Level,nidx);
+                        Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
                         Node.Shares += OutputNode.Shares;
                         Node.FixedDemand += OutputNode.FixedDemand;
                     }
@@ -748,6 +752,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
                     }
                 }
             }
+            ++nidx;
         }
     }
 
@@ -779,6 +784,8 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
                     Node.FixedDemand,
                     Node.AllocatedInputRate
                     );
+                Valid = false;
+                break;
             }
 
             // Avoid division by zero
@@ -795,14 +802,36 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
                     RatePerShare,
                     Remainder
                 );
+                Valid = false;
+                break;
+            }
+
+            if (DEBUG_SPLITTER(Splitter))
+            {
+                UE_LOG(
+                    LogAutoSplitters,
+                    Display,
+                    TEXT("distribution setup: input=%d fixedDemand=%d ratePerShare=%d shares=%d"),
+                    Node.AllocatedInputRate,
+                    Node.FixedDemand,
+                    RatePerShare,
+                    Node.Shares
+                    );
             }
 
             for (int32 i = 0; i < NUM_OUTPUTS; ++i)
             {
                 if (Node.Outputs[i])
                 {
-                    Node.AllocatedOutputRates[i] = Node.Outputs[i]->FixedDemand + Node.Outputs[i]->Shares *
-                        RatePerShare;
+                    if (Node.Outputs[i]->Splitter->IsPersistentFlagSet(MANUAL_INPUT_RATE))
+                    {
+                        Node.AllocatedOutputRates[i] = Node.Outputs[i]->Splitter->mTargetInputRate;
+                    }
+                    else
+                    {
+                        Node.AllocatedOutputRates[i] = Node.Outputs[i]->FixedDemand + Node.Outputs[i]->Shares *
+                            RatePerShare;
+                    }
                     Node.Outputs[i]->AllocatedInputRate = Node.AllocatedOutputRates[i];
                 }
                 else
@@ -820,6 +849,17 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
                     }
                 }
             }
+            if (DEBUG_SPLITTER(Splitter))
+            {
+                UE_LOG(
+                    LogAutoSplitters,
+                    Display,
+                    TEXT("allocated output rates: %d %d %d"),
+                    Node.AllocatedOutputRates[0],
+                    Node.AllocatedOutputRates[1],
+                    Node.AllocatedOutputRates[2]
+                    );
+            }
         }
     }
 
@@ -830,7 +870,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
             Warning,
             TEXT("Invalid network configuration, aborting network balancing")
             );
-        return SplitterCount;
+        return {false,SplitterCount};
     }
 
     // we have a consistent new network setup, now switch the network to the new settings
@@ -863,7 +903,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(AMFGBuildableAutoSplitter* ForSp
         }
     }
 
-    return SplitterCount;
+    return {true,SplitterCount};
 }
 
 std::tuple<AMFGBuildableAutoSplitter*,int32> AMFGBuildableAutoSplitter::FindAutoSplitterAndMaxBeltRate(
@@ -925,6 +965,7 @@ void AMFGBuildableAutoSplitter::SetSplitterVersion(uint32 Version)
     mPersistentState = (mPersistentState & ~0xFFu) | (Version & 0xFFu);
 }
 
+/*
 void AMFGBuildableAutoSplitter::RescaleOutputRates()
 {
     int64 TotalOutputRate = 0;
@@ -943,3 +984,4 @@ void AMFGBuildableAutoSplitter::RescaleOutputRates()
         }
     }
 }
+*/

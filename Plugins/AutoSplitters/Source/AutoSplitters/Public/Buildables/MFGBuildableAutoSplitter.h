@@ -43,10 +43,7 @@ constexpr int32 ClearFlag(int32 BitField, EOutputState flag)
 
 constexpr int32 SetFlag(int32 BitField, EOutputState flag, bool Enabled)
 {
-    if (Enabled)
-        return SetFlag(BitField,flag);
-    else
-        return ClearFlag(BitField,flag);
+    return (BitField & ~Flag(flag)) | (Enabled * Flag(flag));
 }
 
 constexpr static int32 Pow_Constexpr(int32 Base, int32 Exponent)
@@ -171,7 +168,12 @@ public:
     bool SetOutputAutomatic(int32 Output, bool Automatic);
 
     UFUNCTION(BlueprintCallable)
-    static int32 BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
+    int32 BalanceNetwork(int32& SplitterCount_Out)
+    {
+        bool Result;
+        std::tie(Result,SplitterCount_Out) = BalanceNetwork_Internal(this);
+        return Result;
+    }
 
     uint32 GetSplitterVersion() const
     {
@@ -227,6 +229,9 @@ public:
     };
 
 private:
+
+    static std::tuple<bool,int32> BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
+
     static std::tuple<AMFGBuildableAutoSplitter*,int32>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
@@ -256,7 +261,7 @@ private:
         mPersistentState ^= Flag;
     }
 
-    void RescaleOutputRates();
+    // void RescaleOutputRates();
 
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;
