@@ -66,6 +66,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
         UE_LOG(LogAutoSplitters,Display,TEXT("Setting up initial distribution"));
         auto [InputSplitter,MaxInputRate] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
         mTargetInputRate = MaxInputRate;
+        UE_LOG(LogAutoSplitters,Display,TEXT("Found input rate: %d"),mTargetInputRate);
         for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
         {
             auto [OutputSplitter,MaxRate] = FindAutoSplitterAndMaxBeltRate(mOutputs[i],true);
@@ -106,10 +107,10 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     mInventorySlotEnd = {0,0,0};
     std::fill(mAssignedOutputs.begin(),mAssignedOutputs.end(),-1);
 
-    if (mTargetInputRate == 0.0f && mInputs[0]->IsConnected())
+    if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
     {
-        auto Belt = Cast<AFGBuildableConveyorBase>(mInputs[0]->GetConnection()->GetOuterBuildable());
-        mTargetInputRate = Belt->GetSpeed() / 2.0;
+        auto [_,Rate] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
+        mTargetInputRate = Rate;
     }
 
     int32 Connections = 0;
@@ -497,11 +498,16 @@ bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic(bool Automatic)
 {
     SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
     if (!Automatic)
-        mTargetInputRate = 0.0; // will trigger an update during the next factory tick
+        mTargetInputRate = 0; // will trigger an update during the next factory tick
     return true;
 }
 
-bool AMFGBuildableAutoSplitter::SetTargetRate(float Rate)
+float AMFGBuildableAutoSplitter::GetTargetInputRate() const
+{
+    return mTargetInputRate * INV_FRACTIONAL_RATE_MULTIPLIER;
+}
+
+bool AMFGBuildableAutoSplitter::SetTargetInputRate(float Rate)
 {
     if (Rate < 0)
         return false;
@@ -509,8 +515,10 @@ bool AMFGBuildableAutoSplitter::SetTargetRate(float Rate)
     if (IsTargetRateAutomatic())
         return false;
 
-    bool Changed = mTargetInputRate != Rate;
-    mTargetInputRate = Rate;
+    int32 IntRate = static_cast<int32>(Rate * FRACTIONAL_RATE_MULTIPLIER);
+
+    bool Changed = mTargetInputRate != IntRate;
+    mTargetInputRate = IntRate;
 
     if (Changed)
         BalanceNetwork();
@@ -760,7 +768,7 @@ int32 AMFGBuildableAutoSplitter::BalanceNetwork(bool RootOnly)
         }
     }
 
-    if (Root->IsPersistentFlagSet(MANUAL_INPUT_RATE) && Root->mInputs[0]->IsConnected())
+    if (!Root->IsPersistentFlagSet(MANUAL_INPUT_RATE))
     {
         auto Belt = Cast<AFGBuildableConveyorBase>(Root->mInputs[0]->GetConnection()->GetOuterBuildable());
         Root->mTargetInputRate = static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_MULTIPLIER / 2);
@@ -799,7 +807,7 @@ std::tuple<AMFGBuildableAutoSplitter*,int32> AMFGBuildableAutoSplitter::FindAuto
         if (Belt)
         {
             Connection = Forward ? Belt->GetConnection1() : Belt->GetConnection0();
-            Rate = std::min(Rate,static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_DIGITS / 2));
+            Rate = std::min(Rate,static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_MULTIPLIER / 2));
             continue;
         }
         return {Cast<AMFGBuildableAutoSplitter>(Connection->GetOuterBuildable()),Rate};
@@ -843,14 +851,19 @@ void AMFGBuildableAutoSplitter::SetSplitterVersion(uint32 Version)
 
 void AMFGBuildableAutoSplitter::RescaleOutputRates()
 {
-    int32 TotalOutputRate = 0;
+    int64 TotalOutputRate = 0;
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
         TotalOutputRate += mIntegralOutputRates[i] * IsSet(mOutputStates[i],EOutputState::Connected);
     }
 
-    for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+    if (TotalOutputRate > 0)
     {
-        mIntegralOutputRates[i] /= TotalOutputRate;
+        for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
+        {
+            // we have to extend to 64 bit for this step, otherwise we **WILL** overflow
+            int64 Rate = static_cast<int64>(mTargetInputRate) * static_cast<int64>(mIntegralOutputRates[i]);
+            mIntegralOutputRates[i] = static_cast<int32>(Rate / TotalOutputRate);
+        }
     }
 }

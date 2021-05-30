@@ -4,6 +4,7 @@
 
 #include <array>
 
+#include "AkBankManager.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableAttachmentSplitter.h"
 #include "Buildables/FGBuildableConveyorBase.h"
@@ -118,7 +119,7 @@ public:
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
     uint32 mPersistentState;
 
-    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
     int32 mTargetInputRate;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
@@ -154,8 +155,11 @@ public:
     UFUNCTION(BlueprintCallable)
     bool SetTargetRateAutomatic(bool Automatic);
 
+    UFUNCTION(BlueprintCallable,BlueprintPure)
+    float GetTargetInputRate() const;
+
     UFUNCTION(BlueprintCallable)
-    bool SetTargetRate(float Rate);
+    bool SetTargetInputRate(float Rate);
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
     float GetOutputRate(int32 Output) const;
