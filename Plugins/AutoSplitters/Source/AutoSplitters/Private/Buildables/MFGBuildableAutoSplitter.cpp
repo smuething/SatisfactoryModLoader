@@ -121,6 +121,10 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
         Connections += Connected;
         if (Connected != mOutputs[i]->IsConnected())
         {
+            if (DEBUG_THIS_SPLITTER)
+            {
+                UE_LOG(LogAutoSplitters,Display,TEXT("Connection change in output %d"),i);
+            }
             NeedsBalancing = true;
         }
     }
@@ -708,7 +712,6 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
 
     for (int32 Level = Network.Num() - 1 ; Level >= 0 ; --Level)
     {
-        int32 nidx = 0;
         for (auto& Node: Network[Level])
         {
             ++SplitterCount;
@@ -718,23 +721,34 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
 
             for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
             {
-                if (!Splitter.mOutputs[i]->IsConnected())
+                if (Node.MaxOutputRates[i] == 0)
+                {
+                    if (IsSet(Splitter.mOutputStates[i],EOutputState::Connected))
+                    {
+                        Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::Connected);
+                        Node.ConnectionStateChanged = true;
+                    }
                     continue;
+                }
 
+                if (!IsSet(Splitter.mOutputStates[i], EOutputState::Connected))
+                {
+                    Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i], EOutputState::Connected);
+                    Node.ConnectionStateChanged = true;
+                }
+
+                Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i],EOutputState::AutoSplitter,Node.Outputs[i] != nullptr);
                 if (Node.Outputs[i])
                 {
                     auto& OutputNode = *Node.Outputs[i];
                     auto& OutputSplitter = *OutputNode.Splitter;
                     if (OutputSplitter.IsPersistentFlagSet(MANUAL_INPUT_RATE))
                     {
-                        UE_LOG(LogAutoSplitters,Display,TEXT("Setting output %d of splitter %d %d to manual"),i,Level,nidx);
                         Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
-                        UE_LOG(LogAutoSplitters,Display,TEXT("Recording target input rate %d of splitter %d %d"),OutputSplitter.mTargetInputRate,Level,nidx);
                         Node.FixedDemand += OutputSplitter.mTargetInputRate;
                     }
                     else
                     {
-                        UE_LOG(LogAutoSplitters,Display,TEXT("Setting output %d of splitter %d %d to automatic"),i,Level,nidx);
                         Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i],EOutputState::Automatic);
                         Node.Shares += OutputNode.Shares;
                         Node.FixedDemand += OutputNode.FixedDemand;
@@ -752,7 +766,6 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
                     }
                 }
             }
-            ++nidx;
         }
     }
 
@@ -943,10 +956,17 @@ void AMFGBuildableAutoSplitter::DiscoverHierarchy(
     if (InputNode)
     {
         InputNode->Outputs[ChildInParent] = &Node;
+        Node.MaxInputRate = InputNode->MaxOutputRates[ChildInParent];
+    }
+    else
+    {
+        auto [_,MaxRate] = FindAutoSplitterAndMaxBeltRate(Splitter->mInputs[0],false);
+        Node.MaxInputRate = MaxRate;
     }
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
-        const auto [Downstream,_] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+        const auto [Downstream,MaxRate] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+        Node.MaxOutputRates[i] = MaxRate;
         if (Downstream)
             DiscoverHierarchy(Nodes, Downstream, Level + 1, &Node, i, Root);
     }

@@ -211,20 +211,26 @@ public:
     {
         AMFGBuildableAutoSplitter* Splitter;
         FNetworkNode* Input;
+        int32 MaxInputRate;
         std::array<FNetworkNode*,NUM_OUTPUTS> Outputs;
+        std::array<int32,NUM_OUTPUTS> MaxOutputRates;
         int32 FixedDemand;
         int32 Shares;
         int32 AllocatedInputRate;
         std::array<int32,NUM_OUTPUTS> AllocatedOutputRates;
+        bool ConnectionStateChanged;
 
         explicit FNetworkNode(AMFGBuildableAutoSplitter* Splitter, FNetworkNode* Input = nullptr)
             : Splitter(Splitter)
             , Input(Input)
+            , MaxInputRate(0)
             , Outputs({nullptr})
+            , MaxOutputRates({0})
             , FixedDemand(0)
             , Shares(0)
             , AllocatedInputRate(0)
             , AllocatedOutputRates({0})
+            , ConnectionStateChanged(false)
         {}
     };
 
