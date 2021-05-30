@@ -780,8 +780,15 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
         for (auto& Node : Level)
         {
             auto& Splitter = *Node.Splitter;
-            if (Splitter.mTargetInputRate < Node.FixedDemand)
+            if (Node.MaxInputRate < Node.FixedDemand)
             {
+                UE_LOG(
+                    LogAutoSplitters,
+                    Warning,
+                    TEXT("Max input rate is not sufficient to satisfy fixed demand: %d < %d"),
+                    Node.MaxInputRate,
+                    Node.FixedDemand
+                    );
                 Valid = false;
                 break;
             }
