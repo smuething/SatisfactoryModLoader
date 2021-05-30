@@ -65,8 +65,8 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     friend class FAutoSplittersModule;
     friend class AMFGAutoSplitterHologram;
 
-    static constexpr uint32 MANUAL_INPUT_RATE = 1 <<  8;
-    static constexpr uint32 NEWLY_CONSTRUCTED = 1 <<  9;
+    static constexpr uint32 MANUAL_INPUT_RATE     = 1 <<  8;
+    static constexpr uint32 NEEDS_COMPONENT_FIXUP = 1 <<  9;
 
     static constexpr uint32 VERSION = 1;
 

@@ -36,7 +36,7 @@ constexpr auto MakeTArray(const T& Value) -> TArray<T,TFixedAllocator<n>>
 AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     : mOutputStates(MakeTArray<NUM_OUTPUTS>(Flag(EOutputState::Automatic)))
     , mRemainingItems(MakeTArray<NUM_OUTPUTS>(0))
-    , mPersistentState(VERSION)
+    , mPersistentState(0) // Do the setup in BeginPlay(), otherwise we cannot detect version changes during loading
     , mTargetInputRate(0)
     , mIntegralOutputRates(MakeTArray<NUM_OUTPUTS>(FRACTIONAL_RATE_MULTIPLIER))
     , mRootSplitter(nullptr)
@@ -246,6 +246,8 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
 }
 
+constexpr std::array<int32,4> MAPPED_COMPONENTS = {0,1,2,3};
+
 void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion)
 {
     Super::PostLoadGame_Implementation(saveVersion,gameVersion);
@@ -253,15 +255,68 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
     mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
     mCycleTime = -100000.0; // this delays item rate calculation to the first full cycle when loading the game
 
+    UE_LOG(LogAutoSplitters,Display,TEXT("PostLoadGame_Implementation(): %p"),this);
+
     if (GetSplitterVersion() == 0)
     {
         UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading saved Auto Splitter from version 0 to 1"));
+        UE_LOG(LogAutoSplitters,Display,TEXT("Sizes: IntegralOutputRates=%d OutputRates=%d"),mIntegralOutputRates.Num(),mOutputRates_DEPRECATED.Num());
+
+        TInlineComponentArray<UFGFactoryConnectionComponent*,4> Connections;
+        GetComponents(Connections);
+
+        UE_LOG(LogAutoSplitters,Display,TEXT("Number of connections: %d"),Connections.Num());
+
+        for (auto c : Connections)
+        {
+            UFGFactoryConnectionComponent* Partner = c->IsConnected() ? c->GetConnection() : nullptr;
+            auto Pos = this->GetTransform().InverseTransformPosition(c->GetComponentLocation());
+            auto Rot = this->GetTransform().InverseTransformRotation(c->GetComponentRotation().Quaternion());
+            UE_LOG(LogAutoSplitters,Display,TEXT("Component %s: direction %s, connected %s, outside direction %s, pos = %s, rot = %s"),
+                *c->GetName(),
+                c->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT"),
+                c->IsConnected() ? TEXT("true") : TEXT("false"),
+                Partner ? Partner->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT") : TEXT("N/A"),
+                *Pos.ToString(),
+                *Rot.ToString()
+                );
+        }
+
+        /*
+        TInlineComponentArray<UFGFactoryConnectionComponent*,4> ConnectionPartners;
+        ConnectionPartners.Init(nullptr,4);
+        for (int32 i = 0 ; i < 4 ; ++i)
+        {
+            ConnectionPartners[i] = Connections[i]->IsConnected() ? Connections[i]->GetConnection() : nullptr;
+            UE_LOG(LogAutoSplitters,Display,TEXT("Component %d: direction %s, connected %s, outside direction %s, autosplitter: %s"),
+                i,
+                Connections[i]->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT"),
+                Connections[i]->IsConnected() ? TEXT("true") : TEXT("false"),
+                ConnectionPartners[i] ? ConnectionPartners[i]->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT") : TEXT("N/A"),
+                ConnectionPartners[i] ? Cast<AMFGBuildableAutoSplitter>(ConnectionPartners[i]->GetOuterBuildable()) ? TEXT("true") : TEXT("false") : TEXT("N/A")
+                );
+            if (ConnectionPartners[i])
+                ConnectionPartners[i]->ClearConnection();
+        }
+
+        for (int32 i = 0 ; i < 4 ; ++i)
+        {
+            if (ConnectionPartners[MAPPED_COMPONENTS[i]])
+                Connections[i]->SetConnection(ConnectionPartners[MAPPED_COMPONENTS[i]]);
+        }
+        */
+
         for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
         {
-            mIntegralOutputRates[i] = static_cast<int32>(mOutputRates_DEPRECATED[i] * FRACTIONAL_RATE_MULTIPLIER);
+            mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
+            mOutputStates[i] = Flag(EOutputState::Automatic);
         }
         mOutputRates_DEPRECATED.Empty();
+
+        mBalancingRequired = true;
+        SetPersistentFlag(NEEDS_COMPONENT_FIXUP);
         SetSplitterVersion(1);
+
     }
 
     SetupDistribution(true);
@@ -271,7 +326,31 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
     Super::BeginPlay();
+    UE_LOG(LogAutoSplitters,Display,TEXT("BeginPlay(): %p"),this);
+    SetSplitterVersion(VERSION);
     mBalancingRequired = true;
+    if (IsPersistentFlagSet(NEEDS_COMPONENT_FIXUP))
+    {
+        TInlineComponentArray<UFGFactoryConnectionComponent*,6> Connections;
+        GetComponents(Connections);
+
+        UE_LOG(LogAutoSplitters,Display,TEXT("Number of connections: %d"),Connections.Num());
+
+        for (auto c : Connections)
+        {
+            UFGFactoryConnectionComponent* Partner = c->IsConnected() ? c->GetConnection() : nullptr;
+            auto Pos = this->GetTransform().InverseTransformPosition(c->GetComponentLocation());
+            auto Rot = this->GetTransform().InverseTransformRotation(c->GetComponentRotation().Quaternion());
+            UE_LOG(LogAutoSplitters,Display,TEXT("Component %s: direction %s, connected %s, outside direction %s, pos = %s, rot = %s"),
+                *c->GetName(),
+                c->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT"),
+                c->IsConnected() ? TEXT("true") : TEXT("false"),
+                Partner ? Partner->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("INPUT") : TEXT("OUTPUT") : TEXT("N/A"),
+                *Pos.ToString(),
+                *Rot.ToString()
+                );
+        }
+    }
 }
 
 
