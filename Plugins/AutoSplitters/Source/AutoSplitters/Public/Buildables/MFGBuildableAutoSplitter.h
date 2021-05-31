@@ -4,7 +4,6 @@
 
 #include <array>
 
-#include "AkBankManager.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableAttachmentSplitter.h"
 #include "Buildables/FGBuildableConveyorBase.h"
@@ -269,8 +268,6 @@ private:
     {
         mPersistentState ^= Flag;
     }
-
-    // void RescaleOutputRates();
 
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;

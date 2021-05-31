@@ -83,8 +83,8 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
         mGrabbedItems[i] = 0;
         mAssignedItems[i] = 0;
     }
-    mNextInventorySlot = {MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE,MAX_INVENTORY_SIZE};
-    mInventorySlotEnd = {0,0,0};
+    mNextInventorySlot = make_array<NUM_OUTPUTS>(MAX_INVENTORY_SIZE);
+    mInventorySlotEnd = make_array<NUM_OUTPUTS>(0);
     std::fill(mAssignedOutputs.begin(),mAssignedOutputs.end(),-1);
 
     if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
@@ -143,7 +143,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
 
     mCycleTime += dt;
-    std::array<int32,NUM_OUTPUTS> AssignableItems = {0};
+    auto AssignableItems = make_array<NUM_OUTPUTS>(0);
 
     for (int32 ActiveSlot = 0 ; ActiveSlot < mCachedInventoryItemCount ; ++ActiveSlot)
     {
@@ -230,7 +230,6 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
 }
 
-constexpr std::array<int32,4> MAPPED_COMPONENTS = {0,1,2,3};
 
 void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion)
 {
@@ -358,13 +357,10 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
         }
     }
 
-    if (!(
-        IsSet(mOutputStates[0],EOutputState::Connected) ||
-        IsSet(mOutputStates[1],EOutputState::Connected) ||
-        IsSet(mOutputStates[2],EOutputState::Connected)))
+    if (std::none_of(mOutputStates.begin(),mOutputStates.end(),[](auto State) { return IsSet(State,EOutputState::Connected); }))
     {
-        mIntegralOutputRates[0] = mIntegralOutputRates[1] = mIntegralOutputRates[2] = FRACTIONAL_RATE_MULTIPLIER;
-        mItemsPerCycle[0] = mItemsPerCycle[1] = mItemsPerCycle[2] = 4;
+        mIntegralOutputRates.Init(NUM_OUTPUTS,FRACTIONAL_RATE_MULTIPLIER);
+        mItemsPerCycle.Init(NUM_OUTPUTS,0);
         return;
     }
 
@@ -374,7 +370,12 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
         mItemsPerCycle[i] = IsSet(mOutputStates[i], EOutputState::Connected) * mIntegralOutputRates[i];
     }
 
-    auto GCD = std::gcd(std::gcd(mItemsPerCycle[0],mItemsPerCycle[1]),mItemsPerCycle[2]);
+    const auto GCD = std::accumulate(
+        mItemsPerCycle.begin()+1,
+        mItemsPerCycle.end(),
+        mItemsPerCycle[0],
+        [](auto a, auto b) { return std::gcd(a,b);}
+        );
 
     if (GCD == 0)
     {
@@ -971,7 +972,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
         for (auto& Node : Level)
         {
             auto& Splitter = *Node.Splitter;
-            bool NeedsSetupDistribution = false;
+            bool NeedsSetupDistribution = Node.ConnectionStateChanged;
 
             if (Splitter.mTargetInputRate != Node.AllocatedInputRate)
             {
