@@ -81,6 +81,7 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
 public:
 
     AMFGBuildableAutoSplitter();
+    virtual void GetLifetimeReplicatedProps( TArray< FLifetimeProperty >& OutLifetimeProps ) const override;
 
     virtual void BeginPlay() override;
     virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
@@ -101,24 +102,24 @@ private:
         return mBlockedFor[Output] > BLOCK_DETECTION_THRESHOLD;
     }
 
-public:
+protected:
 
     UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
     TArray<float> mOutputRates_DEPRECATED;
 
-    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Replicated, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mOutputStates;
 
     UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mRemainingItems;
 
-    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
     uint32 mPersistentState;
 
-    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
     int32 mTargetInputRate;
 
-    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
     TArray<int32> mIntegralOutputRates;
 
     UPROPERTY(Transient, BlueprintReadOnly)
@@ -127,14 +128,40 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly)
     TArray<int32> mItemsPerCycle;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
     int32 mLeftInCycle;
 
-    UPROPERTY(Transient,BlueprintReadWrite)
+    UPROPERTY(Transient, BlueprintReadWrite)
     bool mDebug;
 
-    UPROPERTY(Transient,BlueprintReadOnly)
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
     int32 mCycleLength;
+
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    int32 mCachedInventoryItemCount;
+
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    float mItemRate;
+
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    bool mIsReplicationEnabled;
+
+private:
+
+    std::array<float,NUM_OUTPUTS> mBlockedFor;
+    std::array<int32,NUM_OUTPUTS> mAssignedItems;
+    std::array<int32,NUM_OUTPUTS> mGrabbedItems;
+    std::array<float,NUM_OUTPUTS> mPriorityStepSize;
+    std::array<int32,MAX_INVENTORY_SIZE> mAssignedOutputs;
+    std::array<int32,NUM_OUTPUTS> mNextInventorySlot;
+    std::array<int32,NUM_OUTPUTS> mInventorySlotEnd;
+
+    bool mBalancingRequired;
+    bool mNeedsInitialDistributionSetup;
+    float mCycleTime;
+    int32 mReallyGrabbed;
+
+public:
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
     static int32 GetFractionalRateDigits()
@@ -151,13 +178,13 @@ public:
     UFUNCTION(BlueprintCallable)
     bool SetTargetRateAutomatic(bool Automatic);
 
-    UFUNCTION(BlueprintCallable,BlueprintPure)
+    UFUNCTION(BlueprintPure)
     float GetTargetInputRate() const;
 
     UFUNCTION(BlueprintCallable)
     bool SetTargetInputRate(float Rate);
 
-    UFUNCTION(BlueprintCallable,BlueprintPure)
+    UFUNCTION(BlueprintPure)
     float GetOutputRate(int32 Output) const;
 
     UFUNCTION(BlueprintCallable)
@@ -184,20 +211,20 @@ public:
         return !!(mPersistentState & Flag);
     }
 
-    UFUNCTION(BlueprintCallable,BlueprintPure)
+    UFUNCTION(BlueprintPure)
     int32 GetInventorySize() const
     {
         return mCachedInventoryItemCount;
     }
 
-    UFUNCTION(BlueprintCallable,BlueprintPure)
+    UFUNCTION(BlueprintPure)
     float GetItemRate() const
     {
         return mItemRate;
     }
 
-    UFUNCTION(BlueprintCallable,BluePrintPure)
-    bool IsDebugSupported() const
+    UFUNCTION(BluePrintPure)
+    static bool IsDebugSupported()
     {
 #if AUTO_SPLITTERS_DEBUG
         return true;
@@ -269,18 +296,4 @@ private:
         mPersistentState ^= Flag;
     }
 
-    std::array<float,NUM_OUTPUTS> mBlockedFor;
-    std::array<int32,NUM_OUTPUTS> mAssignedItems;
-    std::array<int32,NUM_OUTPUTS> mGrabbedItems;
-    std::array<float,NUM_OUTPUTS> mPriorityStepSize;
-    std::array<int32,MAX_INVENTORY_SIZE> mAssignedOutputs;
-    std::array<int32,NUM_OUTPUTS> mNextInventorySlot;
-    std::array<int32,NUM_OUTPUTS> mInventorySlotEnd;
-
-    bool mBalancingRequired;
-    bool mNeedsInitialDistributionSetup;
-    int32 mCachedInventoryItemCount;
-    float mItemRate;
-    float mCycleTime;
-    int32 mReallyGrabbed;
 };

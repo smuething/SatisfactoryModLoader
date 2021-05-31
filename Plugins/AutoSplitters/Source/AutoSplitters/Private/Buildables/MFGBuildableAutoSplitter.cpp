@@ -44,20 +44,28 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mLeftInCycle(0)
     , mDebug(false)
     , mCycleLength(0)
+    , mCachedInventoryItemCount(0)
+    , mItemRate(0.0f)
+    , mIsReplicationEnabled(false)
     , mBlockedFor(make_array<NUM_OUTPUTS>(0.0f))
     , mAssignedItems(make_array<NUM_OUTPUTS>(0))
     , mGrabbedItems(make_array<NUM_OUTPUTS>(0))
     , mPriorityStepSize(make_array<NUM_OUTPUTS>(0.0f))
     , mBalancingRequired(true)
     , mNeedsInitialDistributionSetup(true)
-    , mCachedInventoryItemCount(0)
-    , mItemRate(0.0f)
     , mCycleTime(0.0f)
     , mReallyGrabbed(0)
 {}
 
+void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+}
+
 void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 {
+    if (!HasAuthority())
+        return;
 
     // skip direct splitter base class, it doesn't do anything useful for us
     AFGBuildableConveyorAttachment::Factory_Tick(dt);
