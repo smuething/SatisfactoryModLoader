@@ -672,7 +672,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Connections;
     GetComponents(Connections);
 
-    UE_LOG(LogAutoSplitters, Display, TEXT("Number of connections: %d"), Connections.Num());
+    UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"), Connections.Num());
 
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Partners;
 
