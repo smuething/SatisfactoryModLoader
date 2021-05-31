@@ -2,24 +2,25 @@
 
 #include "Patching/NativeHookManager.h"
 
-//#include "FGDismantleInterface.h"
-//#include "Buildables/FGBuildableAttachmentSplitter.h"
+#include "FGGameMode.h"
 #include "Buildables/MFGBuildableAutoSplitter.h"
+#include "AutoSplittersRCO.h"
+#include "AutoSplittersLog.h"
 
 #include "AutoSplittersLog.h"
 
-#pragma optimize( "", off )
+// #pragma optimize( "", off )
 
 void FAutoSplittersModule::StartupModule()
 {
 
 #if UE_BUILD_SHIPPING
-	
+
 	auto UpgradeHook = [](auto& Call, UObject* self, AActor* newActor)
 	{
 
 		UE_LOG(LogAutoSplitters,Display,TEXT("Entered hook for IFGDismantleInterface::Execute_Upgrade()"));
-	
+
 		AMFGBuildableAutoSplitter* Target = Cast<AMFGBuildableAutoSplitter>(newActor);
 		if (!Target)
 		{
@@ -39,13 +40,24 @@ void FAutoSplittersModule::StartupModule()
 		UE_LOG(LogAutoSplitters,Display,TEXT("Cancelling original call"));
 		Call.Cancel();
 	};
-	
+
+	UE_LOG(
+		LogAutoSplitters,
+		Display,
+		TEXT("Hooking IFGDismantleInterface::Execute_Upgrade() to work around crash during Auto splitter upgrade")
+		);
 	SUBSCRIBE_METHOD(IFGDismantleInterface::Execute_Upgrade,UpgradeHook);
+
+	UE_LOG(
+		LogAutoSplitters,
+		Display,
+		TEXT("Registering AutoSplitters RCO with SML registry")
+		);
 
 #endif // UE_BUILD_SHIPPING
 
 }
 
-#pragma optimize( "", on )
+// #pragma optimize( "", on )
 
 IMPLEMENT_GAME_MODULE(FAutoSplittersModule,AutoSplitters);

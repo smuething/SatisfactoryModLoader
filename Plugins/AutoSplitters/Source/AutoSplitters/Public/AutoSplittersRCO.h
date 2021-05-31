@@ -3,9 +3,9 @@
 #include "CoreMinimal.h"
 #include "FGRemoteCallObject.h"
 
-#include "Buildables/MFGBuildableAutoSplitter.h"
-
 #include "AutoSplittersRCO.generated.h"
+
+class AMFGBuildableAutoSplitter;
 
 /**
  *

@@ -9,6 +9,8 @@
 #include "Buildables/FGBuildableConveyorBase.h"
 
 #include "AutoSplittersModule.h"
+#include "AutoSplittersRCO.h"
+#include "FGPlayerController.h"
 
 #include "MFGBuildableAutoSplitter.generated.h"
 
@@ -63,9 +65,12 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
 
     friend class FAutoSplittersModule;
     friend class AMFGAutoSplitterHologram;
+    friend class UAutoSplittersRCO;
 
     static constexpr uint32 MANUAL_INPUT_RATE       = 1 <<  8;
     static constexpr uint32 NEEDS_CONNECTIONS_FIXUP = 1 <<  9;
+
+    static constexpr uint32 IS_REPLICATION_ENABLED  = 1 <<  8;
 
     static constexpr uint32 VERSION = 1;
 
@@ -93,6 +98,22 @@ protected:
     virtual bool Factory_GrabOutput_Implementation( UFGFactoryConnectionComponent* connection, FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf< UFGItemDescriptor > type ) override;
     virtual void FillDistributionTable(float dt) override;
 
+    void EnableReplication_Implementation(float Duration);
+
+    UAutoSplittersRCO* RCO() const
+    {
+        UWorld* World = GetWorld();
+        return Cast<UAutoSplittersRCO>(Cast<AFGPlayerController>(World->GetFirstPlayerController())->GetRemoteCallObjectOfClass(UAutoSplittersRCO::StaticClass()));
+    }
+
+    bool SetTargetRateAutomatic_Implementation(bool Automatic);
+
+    bool SetTargetInputRate_Implementation(float Rate);
+
+    bool SetOutputRate_Implementation(int32 Output, float Rate);
+
+    bool SetOutputAutomatic_Implementation(int32 Output, bool Automatic);
+
 private:
 
     void SetupDistribution(bool LoadingSave = false);
@@ -105,8 +126,8 @@ private:
 
 protected:
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
-    bool mIsReplicationEnabled;
+    UPROPERTY(Transient, Replicated)
+    uint32 mTransientState;
 
     UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
     TArray<float> mOutputRates_DEPRECATED;
@@ -170,8 +191,20 @@ public:
         return FRACTIONAL_RATE_DIGITS;
     }
 
+    UFUNCTION(BlueprintPure)
+    bool IsReplicationEnabled() const
+    {
+        return IsTransientFlagSet(IS_REPLICATION_ENABLED);
+    }
+
     UFUNCTION(BlueprintCallable)
-    void EnableReplication(float Duration);
+    void EnableReplication(float Duration)
+    {
+        if (HasAuthority())
+            EnableReplication_Implementation(Duration);
+        else
+            RCO()->EnableReplication(this,Duration);
+    }
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
     bool IsTargetRateAutomatic() const
@@ -180,22 +213,47 @@ public:
     }
 
     UFUNCTION(BlueprintCallable)
-    bool SetTargetRateAutomatic(bool Automatic);
+    void SetTargetRateAutomatic(bool Automatic)
+    {
+        if (HasAuthority())
+            SetTargetRateAutomatic_Implementation(Automatic);
+        else
+            RCO()->SetTargetRateAutomatic(this,Automatic);
+    }
+
 
     UFUNCTION(BlueprintPure)
     float GetTargetInputRate() const;
 
     UFUNCTION(BlueprintCallable)
-    bool SetTargetInputRate(float Rate);
+    void SetTargetInputRate(float Rate)
+    {
+        if (HasAuthority())
+            SetTargetInputRate_Implementation(Rate);
+        else
+            RCO()->SetTargetInputRate(this,Rate);
+    }
 
     UFUNCTION(BlueprintPure)
     float GetOutputRate(int32 Output) const;
 
     UFUNCTION(BlueprintCallable)
-    bool SetOutputRate(int32 Output, float Rate);
+    void SetOutputRate(int32 Output, float Rate)
+    {
+        if (HasAuthority())
+            SetOutputRate_Implementation(Output,Rate);
+        else
+            RCO()->SetOutputRate(this,Output,Rate);
+    }
 
     UFUNCTION(BlueprintCallable)
-    bool SetOutputAutomatic(int32 Output, bool Automatic);
+    void SetOutputAutomatic(int32 Output, bool Automatic)
+    {
+        if (HasAuthority())
+            SetOutputAutomatic_Implementation(Output,Automatic);
+        else
+            RCO()->SetOutputAutomatic(this,Output,Automatic);
+    }
 
     UFUNCTION(BlueprintCallable)
     int32 BalanceNetwork(int32& SplitterCount_Out)
@@ -208,11 +266,6 @@ public:
     uint32 GetSplitterVersion() const
     {
         return mPersistentState & 0xFFu;
-    }
-
-    bool IsPersistentFlagSet(uint32 Flag) const
-    {
-        return !!(mPersistentState & Flag);
     }
 
     UFUNCTION(BlueprintPure)
@@ -235,6 +288,18 @@ public:
 #else
         return false;
 #endif
+    }
+
+    UFUNCTION(BluePrintPure)
+    bool HasCurrentData() const
+    {
+        return HasAuthority() || IsReplicationEnabled();
+    }
+
+    UFUNCTION(BlueprintPure)
+    int32 GetError() const
+    {
+        return mTransientState & 0xFFu;
     }
 
     struct FNetworkNode
@@ -266,6 +331,16 @@ public:
 
 private:
 
+    void SetError(uint8 Error)
+    {
+        mTransientState = (mTransientState & ~0xFFu) | static_cast<uint32>(Error);
+    }
+
+    void ClearError()
+    {
+        mTransientState &= ~0xFFu;;
+    }
+
     void FixupConnections();
     void SetupInitialDistributionState();
 
@@ -285,6 +360,11 @@ private:
 
     void SetSplitterVersion(uint32 Version);
 
+    bool IsPersistentFlagSet(uint32 Flag) const
+    {
+        return !!(mPersistentState & Flag);
+    }
+
     FORCEINLINE void SetPersistentFlag(int32 Flag, bool Value = true)
     {
         mPersistentState = (mPersistentState & ~Flag) | (Value * Flag);
@@ -298,6 +378,26 @@ private:
     FORCEINLINE void TogglePersistentFlag(int32 Flag)
     {
         mPersistentState ^= Flag;
+    }
+
+    bool IsTransientFlagSet(uint32 Flag) const
+    {
+        return !!(mTransientState & Flag);
+    }
+
+    FORCEINLINE void SetTransientFlag(int32 Flag, bool Value = true)
+    {
+        mTransientState = (mTransientState & ~Flag) | (Value * Flag);
+    }
+
+    FORCEINLINE void ClearTransientFlag(int32 Flag)
+    {
+        mTransientState &= ~Flag;
+    }
+
+    FORCEINLINE void ToggleTransientFlag(int32 Flag)
+    {
+        mTransientState ^= Flag;
     }
 
 };

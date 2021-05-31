@@ -34,7 +34,7 @@ constexpr auto MakeTArray(const T& Value) -> TArray<T,TFixedAllocator<n>>
 }
 
 AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
-    : mIsReplicationEnabled(false)
+    : mTransientState(0)
     , mOutputStates(MakeTArray<NUM_OUTPUTS>(Flag(EOutputState::Automatic)))
     , mRemainingItems(MakeTArray<NUM_OUTPUTS>(0))
     , mPersistentState(0) // Do the setup in BeginPlay(), otherwise we cannot detect version changes during loading
@@ -60,7 +60,7 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
 void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-    DOREPLIFETIME(AMFGBuildableAutoSplitter,mIsReplicationEnabled);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mTransientState);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mOutputStates);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mPersistentState);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mTargetInputRate);
@@ -74,14 +74,14 @@ void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimePrope
 void AMFGBuildableAutoSplitter::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)
 {
     Super::PreReplication(ChangedPropertyTracker);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mOutputStates,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mPersistentState,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mTargetInputRate,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mIntegralOutputRates,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mLeftInCycle,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCycleLength,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCachedInventoryItemCount,mIsReplicationEnabled);
-    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mItemRate,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mOutputStates,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mPersistentState,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mTargetInputRate,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mIntegralOutputRates,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mLeftInCycle,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCycleLength,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCachedInventoryItemCount,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mItemRate,IsTransientFlagSet(IS_REPLICATION_ENABLED));
 }
 
 void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
@@ -418,12 +418,23 @@ void AMFGBuildableAutoSplitter::SetupDistribution(bool LoadingSave)
         mItemsPerCycle[i] = IsSet(mOutputStates[i], EOutputState::Connected) * mIntegralOutputRates[i];
     }
 
+#if UE_BUILD_SHIPPING
     const auto GCD = std::accumulate(
         mItemsPerCycle.begin()+1,
         mItemsPerCycle.end(),
         mItemsPerCycle[0],
         [](auto a, auto b) { return std::gcd(a,b);}
         );
+#else
+    // The checked iterator generated here for begin() cannot be advanced with +1, we don't care, this code won't ever
+    // run anyway
+    const auto GCD = std::accumulate(
+        mItemsPerCycle.begin(),
+        mItemsPerCycle.end(),
+        mItemsPerCycle[0],
+        [](auto a, auto b) { return std::gcd(a,b);}
+        );
+#endif
 
     if (GCD == 0)
     {
@@ -557,11 +568,12 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
     }
 }
 
-void AMFGBuildableAutoSplitter::EnableReplication(float Duration)
+void AMFGBuildableAutoSplitter::EnableReplication_Implementation(float Duration)
 {
+  SetTransientFlag(IS_REPLICATION_ENABLED);
 }
 
-bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic(bool Automatic)
+bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic_Implementation(bool Automatic)
 {
     SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
     if (!Automatic)
@@ -574,7 +586,7 @@ float AMFGBuildableAutoSplitter::GetTargetInputRate() const
     return mTargetInputRate * INV_FRACTIONAL_RATE_MULTIPLIER;
 }
 
-bool AMFGBuildableAutoSplitter::SetTargetInputRate(float Rate)
+bool AMFGBuildableAutoSplitter::SetTargetInputRate_Implementation(float Rate)
 {
     if (Rate < 0)
         return false;
@@ -601,7 +613,7 @@ float AMFGBuildableAutoSplitter::GetOutputRate(int32 Output) const
     return static_cast<float>(mIntegralOutputRates[Output]) * INV_FRACTIONAL_RATE_MULTIPLIER;
 }
 
-bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Rate)
+bool AMFGBuildableAutoSplitter::SetOutputRate_Implementation(const int32 Output, const float Rate)
 {
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
     {
@@ -670,7 +682,7 @@ bool AMFGBuildableAutoSplitter::SetOutputRate(const int32 Output, const float Ra
     return valid;
 }
 
-bool AMFGBuildableAutoSplitter::SetOutputAutomatic(int32 Output, bool Automatic)
+bool AMFGBuildableAutoSplitter::SetOutputAutomatic_Implementation(int32 Output, bool Automatic)
 {
 
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
