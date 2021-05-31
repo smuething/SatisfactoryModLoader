@@ -240,7 +240,7 @@ private:
 
     static std::tuple<bool,int32> BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
 
-    static std::tuple<AMFGBuildableAutoSplitter*,int32>
+    static std::tuple<AMFGBuildableAutoSplitter*, int32, bool>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
     static bool DiscoverHierarchy(
