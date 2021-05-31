@@ -82,6 +82,7 @@ public:
 
     AMFGBuildableAutoSplitter();
     virtual void GetLifetimeReplicatedProps( TArray< FLifetimeProperty >& OutLifetimeProps ) const override;
+    virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;;
 
     virtual void BeginPlay() override;
     virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
@@ -103,6 +104,9 @@ private:
     }
 
 protected:
+
+    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    bool mIsReplicationEnabled;
 
     UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
     TArray<float> mOutputRates_DEPRECATED;
@@ -143,9 +147,6 @@ protected:
     UPROPERTY(Transient, Replicated, BlueprintReadOnly)
     float mItemRate;
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
-    bool mIsReplicationEnabled;
-
 private:
 
     std::array<float,NUM_OUTPUTS> mBlockedFor;
@@ -163,11 +164,14 @@ private:
 
 public:
 
-    UFUNCTION(BlueprintCallable,BlueprintPure)
+    UFUNCTION(BlueprintPure)
     static int32 GetFractionalRateDigits()
     {
         return FRACTIONAL_RATE_DIGITS;
     }
+
+    UFUNCTION(BlueprintCallable)
+    void EnableReplication(float Duration);
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
     bool IsTargetRateAutomatic() const

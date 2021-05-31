@@ -34,7 +34,8 @@ constexpr auto MakeTArray(const T& Value) -> TArray<T,TFixedAllocator<n>>
 }
 
 AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
-    : mOutputStates(MakeTArray<NUM_OUTPUTS>(Flag(EOutputState::Automatic)))
+    : mIsReplicationEnabled(false)
+    , mOutputStates(MakeTArray<NUM_OUTPUTS>(Flag(EOutputState::Automatic)))
     , mRemainingItems(MakeTArray<NUM_OUTPUTS>(0))
     , mPersistentState(0) // Do the setup in BeginPlay(), otherwise we cannot detect version changes during loading
     , mTargetInputRate(0)
@@ -46,7 +47,6 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mCycleLength(0)
     , mCachedInventoryItemCount(0)
     , mItemRate(0.0f)
-    , mIsReplicationEnabled(false)
     , mBlockedFor(make_array<NUM_OUTPUTS>(0.0f))
     , mAssignedItems(make_array<NUM_OUTPUTS>(0))
     , mGrabbedItems(make_array<NUM_OUTPUTS>(0))
@@ -60,6 +60,28 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
 void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mIsReplicationEnabled);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mOutputStates);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mPersistentState);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mTargetInputRate);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mIntegralOutputRates);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mLeftInCycle);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mCycleLength);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mCachedInventoryItemCount);
+    DOREPLIFETIME(AMFGBuildableAutoSplitter,mItemRate);
+}
+
+void AMFGBuildableAutoSplitter::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)
+{
+    Super::PreReplication(ChangedPropertyTracker);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mOutputStates,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mPersistentState,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mTargetInputRate,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mIntegralOutputRates,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mLeftInCycle,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCycleLength,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCachedInventoryItemCount,mIsReplicationEnabled);
+    DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mItemRate,mIsReplicationEnabled);
 }
 
 void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
@@ -242,6 +264,12 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion)
 {
     Super::PostLoadGame_Implementation(saveVersion,gameVersion);
+
+    if (!HasAuthority())
+    {
+        UE_LOG(LogAutoSplitters,Fatal,TEXT("PostLoadGame_Implementation() was called without authority"));
+    }
+
     mLeftInCycle = std::accumulate(mRemainingItems.begin(),mRemainingItems.end(),0);
     mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
     mCycleTime = -100000.0; // this delays item rate calculation to the first full cycle when loading the game
@@ -271,14 +299,21 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
     // we need to fix the connection wiring before calling into our parent class
-    if (IsPersistentFlagSet(NEEDS_CONNECTIONS_FIXUP))
+    if (HasAuthority())
     {
-        FixupConnections();
-    }
+        if (IsPersistentFlagSet(NEEDS_CONNECTIONS_FIXUP))
+        {
+            FixupConnections();
+        }
 
-    Super::BeginPlay();
-    SetSplitterVersion(VERSION);
-    mBalancingRequired = true;
+        Super::BeginPlay();
+        SetSplitterVersion(VERSION);
+        mBalancingRequired = true;
+    }
+    else
+    {
+        Super::BeginPlay();
+    }
 }
 
 
@@ -291,6 +326,11 @@ void AMFGBuildableAutoSplitter::FillDistributionTable(float dt)
 bool AMFGBuildableAutoSplitter::Factory_GrabOutput_Implementation(UFGFactoryConnectionComponent* connection,
     FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf<UFGItemDescriptor> type)
 {
+    if (!HasAuthority())
+    {
+        UE_LOG(LogAutoSplitters, Fatal, TEXT("Factory_GrabOutput_Implementation() was called without authority"));
+    }
+
     int32 Output = -1;
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
@@ -515,6 +555,10 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
                 mRemainingItems[i] = 0;
         }
     }
+}
+
+void AMFGBuildableAutoSplitter::EnableReplication(float Duration)
+{
 }
 
 bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic(bool Automatic)
