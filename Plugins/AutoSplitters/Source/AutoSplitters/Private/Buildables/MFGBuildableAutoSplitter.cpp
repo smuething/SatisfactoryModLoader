@@ -885,9 +885,16 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
     for (auto Partner : UnclearPartners)
     {
-        UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Removing attached conveyor for partner %p"),this,Partner);
-        Execute_Dismantle(Partner->GetOuterBuildable());
-        ++Module->mDismantledConveyors;
+        UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
+        auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
+        if (!Conveyor)
+        {
+            UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
+        }
+        else
+        {
+            Module->mBrokenConveyors.Add(Conveyor);
+        }
     }
 
     if (!Error)
@@ -902,11 +909,22 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     }
     else
     {
-        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Cannot determine correct connection setup, leaving connections disconnected"), this);
+        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Cannot determine correct connection setup, leaving connections disconnected and dismantling all conveyors"), this);
         for (auto Partner: Partners)
         {
             if (Partner)
-                Execute_Dismantle(Partner->GetOuterBuildable());
+            {
+                UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
+                auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
+                if (!Conveyor)
+                {
+                    UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
+                }
+                else
+                {
+                    Module->mBrokenConveyors.Add(Conveyor);
+                }
+            }
         }
     }
 

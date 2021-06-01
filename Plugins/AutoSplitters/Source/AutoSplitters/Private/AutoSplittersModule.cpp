@@ -20,6 +20,9 @@ void FAutoSplittersModule::StartupModule()
 	auto UpgradeHook = [](auto& Call, UObject* self, AActor* newActor)
 	{
 
+		if (!newActor->HasAuthority())
+			return;
+
 		UE_LOG(LogAutoSplitters,Display,TEXT("Entered hook for IFGDismantleInterface::Execute_Upgrade()"));
 
 		AMFGBuildableAutoSplitter* Target = Cast<AMFGBuildableAutoSplitter>(newActor);
@@ -46,19 +49,29 @@ void FAutoSplittersModule::StartupModule()
 
 	auto NotifyBeginPlayHook = [&](AFGWorldSettings* WorldSettings)
 	{
+		if (!WorldSettings->HasAuthority())
+			return;
+
 		if (mUpgradedSplitters == 0)
 			return;
 
 		UE_LOG(LogAutoSplitters,Display,TEXT("Upgraded %d AutoSplitters while loading savegame"),mUpgradedSplitters);
 
-		if (this->mDismantledConveyors > 0)
+		if (mBrokenConveyors.Num() > 0)
 		{
-			UE_LOG(LogAutoSplitters,Warning,TEXT("AutoSplitters Mod Upgrade: Dismantled %d Conveyors"),mDismantledConveyors);
 
-			FString Str = FString::Printf(TEXT("Your savegame contained Auto Splitters created with versions of the mod older than 0.3.0,"\
-				"which connect to the attached conveyors in a wrong way. The mod has upgraded these Auto Splitters, but some connections could"\
+			UE_LOG(LogAutoSplitters,Warning,TEXT("AutoSplitters Mod Upgrade: Dismantling %d Conveyors"),mBrokenConveyors.Num());
+
+			for (auto Conveyor : mBrokenConveyors)
+			{
+				UE_LOG(LogAutoSplitters,Display,TEXT("Dismantling conveyor %p (%s) at %s"),Conveyor,*Conveyor->GetName(),*Conveyor->GetActorLocation().ToString());
+				IFGDismantleInterface::Execute_Dismantle(Conveyor);
+			}
+
+			FString Str = FString::Printf(TEXT("Your savegame contained Auto Splitters created with versions of the mod older than 0.3.0, "\
+				"which connect to the attached conveyors in a wrong way. The mod has upgraded these Auto Splitters, but some connections could "\
 				"not be repaired.\n\n WARNING: Those conveyors have been dismantled to make it easy for you to find the broken splitters.\n\nA total "\
-				"of %d conveyors have been removed."),mDismantledConveyors);
+				"of %d conveyors have been removed."),mBrokenConveyors.Num());
 
 			AFGPlayerController* LocalController = UFGBlueprintFunctionLibrary::GetLocalPlayerController(WorldSettings->GetWorld());
 
@@ -68,7 +81,7 @@ void FAutoSplittersModule::StartupModule()
 		}
 
 		mUpgradedSplitters = 0;
-		mDismantledConveyors = 0;
+		mBrokenConveyors.Empty();
 	};
 
 	void* SampleInstance = GetMutableDefault<AFGWorldSettings>();
