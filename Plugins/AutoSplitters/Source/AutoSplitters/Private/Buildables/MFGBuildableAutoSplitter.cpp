@@ -90,8 +90,10 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
     {
         auto [_,Rate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready)
             return;
+#endif
         mTargetInputRate = Rate;
     }
 
@@ -714,12 +716,14 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 #endif
 
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Partners;
+    int32 PartnerCount = 0;
 
     int32 ii = 0;
     for (auto& c : Connections)
     {
         UFGFactoryConnectionComponent* Partner = c->IsConnected() ? c->GetConnection() : nullptr;
         Partners.Add(Partner);
+        PartnerCount += Partner != nullptr;
 
 #if AUTO_SPLITTERS_DEBUG
 
@@ -793,11 +797,90 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         }
     }
 
-    for (int32 i = 0; i < 4; ++i)
+    auto Candidates = make_array<4,UFGFactoryConnectionComponent*>(nullptr);
+    int32 Assigned = 0;
+    bool Error = false;
+
+    for (auto Partner : Partners)
     {
-        if (Partners[GPartner_Map[i]])
+        if (!Partner)
+            continue;
+        auto PartnerPos = Partner->GetComponentLocation();
+        for (int32 i = 0 ; i < 4 ; ++i)
         {
-            Connections[i]->SetConnection(Partners[GPartner_Map[i]]);
+            if (Error)
+                break;
+            float Distance = FVector::DistSquared(Connections[i]->GetComponentLocation(),PartnerPos);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Distance_squared(%d,%p) = %f"),this,i,Partner,Distance);
+            if (Distance < UPGRADE_POSITION_TOLERANCE)
+            {
+                for (int32 j = 0 ; j < 4 ; ++j)
+                {
+                    if (i == j)
+                        continue;
+                    if (Partner == Candidates[j])
+                    {
+                        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Found two possible locations for partner %p: %d and %d"), this, Partner, i, j );
+                        Error = true;
+                    }
+                }
+                if (Candidates[i])
+                {
+                    UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Found two possible partners for location %s: %d and %d"), this, *Connections[i]->GetName(), i, Candidates[i] );
+                    Error = true;
+                }
+                if (Error)
+                    break;
+
+                UE_LOG( LogAutoSplitters, Display, TEXT("Splitter %p - Assigned partner %p to connection %s"), this, Partner, *Connections[i]->GetName());
+                Candidates[i] = Partner;
+                ++Assigned;
+            }
+        }
+    }
+
+    if (!Error)
+    {
+        if (Assigned < PartnerCount)
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
+            Error = true;
+        }
+        for (int32 i = 0 ; i < 4 ; ++i)
+        {
+            if (!Candidates[i])
+                continue;
+
+            if (Connections[i]->GetDirection() == Candidates[i]->GetDirection())
+            {
+                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s)"), this, i, *Connections[i]->GetName());
+                Error = true;
+            }
+        }
+        if (Assigned < PartnerCount)
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
+            Error = true;
+        }
+    }
+
+    if (!Error)
+    {
+        for (int32 i = 0; i < 4; ++i)
+        {
+            if (Candidates[i])
+            {
+                Connections[i]->SetConnection(Candidates[i]);
+            }
+        }
+    }
+    else
+    {
+        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Cannot determine correct connection setup, leaving connections disconnected"), this);
+        for (auto Partner: Partners)
+        {
+            if (Partner)
+                Execute_Dismantle(Partner->GetOuterBuildable());
         }
     }
 
@@ -808,6 +891,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
 {
     auto [InputSplitter,MaxInputRate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0], false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
     if (!Ready)
     {
 #if AUTO_SPLITTERS_DEBUG
@@ -815,10 +899,12 @@ void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
 #endif
         return;
     }
+#endif
     mTargetInputRate = MaxInputRate;
     for (int32 i = 0; i < NUM_OUTPUTS; ++i)
     {
         auto [OutputSplitter,MaxRate,Ready2] = FindAutoSplitterAndMaxBeltRate(mOutputs[i], true);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready2)
         {
 #if AUTO_SPLITTERS_DEBUG
@@ -826,6 +912,7 @@ void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
 #endif
             return;
         }
+#endif
         if (MaxRate > 0)
         {
             mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
@@ -869,6 +956,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
         std::tie(Current,Rate,Ready) = FindAutoSplitterAndMaxBeltRate(Current->mInputs[0],false)
         )
     {
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready)
         {
 #if AUTO_SPLITTERS_DEBUG
@@ -876,6 +964,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
 #endif
             return {false,-1};
         }
+#endif
         if (Current->IsPersistentFlagSet(NEEDS_CONNECTIONS_FIXUP) || !Current->HasActorBegunPlay())
             return {false,-1};
         if (SplitterSet.Contains(Current))
@@ -1125,6 +1214,7 @@ std::tuple<AMFGBuildableAutoSplitter*, int32, bool> AMFGBuildableAutoSplitter::F
     while (Connection->IsConnected())
     {
         Connection = Connection->GetConnection();
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Connection->GetOuterBuildable()->HasActorBegunPlay())
         {
 #if AUTO_SPLITTERS_DEBUG
@@ -1136,6 +1226,7 @@ std::tuple<AMFGBuildableAutoSplitter*, int32, bool> AMFGBuildableAutoSplitter::F
 
             return {0,0,false};
         }
+#endif
         const auto Belt = Cast<AFGBuildableConveyorBase>(Connection->GetOuterBuildable());
         if (Belt)
         {
@@ -1173,6 +1264,7 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
     else
     {
         auto [_,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mInputs[0],false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready)
         {
 #if AUTO_SPLITTERS_DEBUG
@@ -1180,12 +1272,13 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
 #endif
             return false;
         }
-
+#endif
         Node.MaxInputRate = MaxRate;
     }
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
         const auto [Downstream,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready)
         {
 #if AUTO_SPLITTERS_DEBUG
@@ -1193,6 +1286,7 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
 #endif
             return false;
         }
+#endif
         Node.MaxOutputRates[i] = MaxRate;
         if (Downstream)
         {
