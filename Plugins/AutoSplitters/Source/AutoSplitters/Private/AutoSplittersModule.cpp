@@ -60,14 +60,7 @@ void FAutoSplittersModule::StartupModule()
 				"not be repaired.\n\n WARNING: Those conveyors have been dismantled to make it easy for you to find the broken splitters.\n\nA total "\
 				"of %d conveyors have been removed."),mDismantledConveyors);
 
-			AFGPlayerController* LocalController = nullptr;
-			for (auto Iterator = WorldSettings->GetWorld()->GetPlayerControllerIterator() ; Iterator ; ++Iterator)
-			{
-				if (Iterator->Get()->IsLocalPlayerController())
-				{
-					LocalController = Cast<AFGPlayerController>(Iterator->Get());
-				}
-			}
+			AFGPlayerController* LocalController = UFGBlueprintFunctionLibrary::GetLocalPlayerController(WorldSettings->GetWorld());
 
 			FPopupClosed CloseDelegate;
 
