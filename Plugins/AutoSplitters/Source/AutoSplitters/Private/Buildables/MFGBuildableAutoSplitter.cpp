@@ -4,7 +4,9 @@
 
 #include <numeric>
 
+#include <Modules/ModuleManager.h>
 #include "AutoSplittersLog.h"
+#include "AutoSplittersModule.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 
@@ -699,6 +701,9 @@ constexpr std::array<int32,4> GPartner_Map = {0,1,3,5};
 
 void AMFGBuildableAutoSplitter::FixupConnections()
 {
+
+    auto Module = FModuleManager::GetModulePtr<FAutoSplittersModule>("AutoSplitters");
+
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Connections;
     GetComponents(Connections);
 
@@ -800,43 +805,62 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     auto Candidates = make_array<4,UFGFactoryConnectionComponent*>(nullptr);
     int32 Assigned = 0;
     bool Error = false;
+    TInlineComponentArray<UFGFactoryConnectionComponent*,4> UnclearPartners;
 
+    int32 idebug = 0;
     for (auto Partner : Partners)
     {
         if (!Partner)
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %d does not exist, skipping"),this,idebug);
+            ++idebug;
             continue;
+        }
         auto PartnerPos = Partner->GetComponentLocation();
+        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %p (%d) position=%s"),this,Partner,idebug,*PartnerPos.ToString());
+        float Distance = INFINITY;
+        int32 MatchingConnection = -1;
+        bool LoopError = false;
         for (int32 i = 0 ; i < 4 ; ++i)
         {
-            if (Error)
-                break;
-            float Distance = FVector::DistSquared(Connections[i]->GetComponentLocation(),PartnerPos);
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Distance_squared(%d,%p) = %f"),this,i,Partner,Distance);
-            if (Distance < UPGRADE_POSITION_TOLERANCE)
+            auto ConnectionPos = Connections[i]->GetComponentLocation();
+            float ConnectionDistance = FVector::Dist(ConnectionPos,PartnerPos);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: ConnectionPos=%s Distance(%d,%p) = %f"),this,i,Partner,*ConnectionPos.ToString(),ConnectionDistance);
+            if (std::abs(Distance - ConnectionDistance) < UPGRADE_POSITION_REQUIRED_DELTA)
             {
-                for (int32 j = 0 ; j < 4 ; ++j)
-                {
-                    if (i == j)
-                        continue;
-                    if (Partner == Candidates[j])
-                    {
-                        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Found two possible locations for partner %p: %d and %d"), this, Partner, i, j );
-                        Error = true;
-                    }
-                }
-                if (Candidates[i])
-                {
-                    UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Found two possible partners for location %s: %d and %d"), this, *Connections[i]->GetName(), i, Candidates[i] );
-                    Error = true;
-                }
-                if (Error)
-                    break;
+                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - %d and %d: distance delta too small (%f)"), this, Partner, MatchingConnection, i, Distance - ConnectionDistance );
+                LoopError = true;
+                continue;
+            }
 
-                UE_LOG( LogAutoSplitters, Display, TEXT("Splitter %p - Assigned partner %p to connection %s"), this, Partner, *Connections[i]->GetName());
-                Candidates[i] = Partner;
-                ++Assigned;
+            if (ConnectionDistance < Distance)
+            {
+                UE_LOG( LogAutoSplitters, Display, TEXT("Splitter %p: Partner %p - picking connection %d"), this, Partner, i );
+                Distance = ConnectionDistance;
+                MatchingConnection = i;
+                LoopError = false;
             }
         }
+
+        if (LoopError)
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best candidates are too close, marking connection for dismantling"), this, Partner);
+            Error = true;
+            UnclearPartners.Add(Partner);
+        }
+
+        if (Candidates[MatchingConnection])
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best connection %d has already been picked for %p"), this, Partner, MatchingConnection, Candidates[MatchingConnection]);
+            Error = true;
+            UnclearPartners.Add(Partner);
+        }
+        else
+        {
+            Candidates[MatchingConnection] = Partner;
+            ++Assigned;
+        }
+        ++idebug;
     }
 
     if (!Error)
@@ -844,7 +868,12 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         if (Assigned < PartnerCount)
         {
             UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
-            Error = true;
+            for (auto Partner : UnclearPartners)
+            {
+                UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Removing belt for partner %p"),this,Partner);
+                Execute_Dismantle(Partner->GetOuterBuildable());
+                ++Module->mDismantledConveyors;
+            }
         }
         for (int32 i = 0 ; i < 4 ; ++i)
         {
@@ -856,11 +885,6 @@ void AMFGBuildableAutoSplitter::FixupConnections()
                 UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s)"), this, i, *Connections[i]->GetName());
                 Error = true;
             }
-        }
-        if (Assigned < PartnerCount)
-        {
-            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
-            Error = true;
         }
     }
 
@@ -885,6 +909,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     }
 
     ClearPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
+    ++Module->mUpgradedSplitters;
     mNeedsInitialDistributionSetup = true;
 }
 

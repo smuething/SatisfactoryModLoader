@@ -78,7 +78,7 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     static constexpr int32 FRACTIONAL_RATE_MULTIPLIER = Pow_Constexpr(10,FRACTIONAL_RATE_DIGITS);
     static constexpr float INV_FRACTIONAL_RATE_MULTIPLIER = 1.0f / FRACTIONAL_RATE_MULTIPLIER;
 
-    static constexpr float UPGRADE_POSITION_TOLERANCE = 5000.0f;
+    static constexpr float UPGRADE_POSITION_REQUIRED_DELTA = 100.0f;
 
 public:
 

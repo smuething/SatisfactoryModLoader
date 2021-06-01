@@ -2,8 +2,7 @@
 
 #include "Patching/NativeHookManager.h"
 
-//#include "FGDismantleInterface.h"
-//#include "Buildables/FGBuildableAttachmentSplitter.h"
+#include "FGWorldSettings.h"
 #include "Buildables/MFGBuildableAutoSplitter.h"
 
 #include "AutoSplittersLog.h"
@@ -14,12 +13,12 @@ void FAutoSplittersModule::StartupModule()
 {
 
 #if UE_BUILD_SHIPPING
-	
+
 	auto UpgradeHook = [](auto& Call, UObject* self, AActor* newActor)
 	{
 
 		UE_LOG(LogAutoSplitters,Display,TEXT("Entered hook for IFGDismantleInterface::Execute_Upgrade()"));
-	
+
 		AMFGBuildableAutoSplitter* Target = Cast<AMFGBuildableAutoSplitter>(newActor);
 		if (!Target)
 		{
@@ -39,8 +38,28 @@ void FAutoSplittersModule::StartupModule()
 		UE_LOG(LogAutoSplitters,Display,TEXT("Cancelling original call"));
 		Call.Cancel();
 	};
-	
+
 	SUBSCRIBE_METHOD(IFGDismantleInterface::Execute_Upgrade,UpgradeHook);
+
+	auto NotifyBeginPlayHook = [&](auto WorldSettings)
+	{
+		if (mUpgradedSplitters == 0)
+			return;
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Upgraded %d AutoSplitters while loading savegame"),mUpgradedSplitters);
+
+		if (this->mDismantledConveyors > 0)
+		{
+			UE_LOG(LogAutoSplitters,Warning,TEXT("Dismantled %d conveyors during AutoSplitter upgrade"),mDismantledConveyors);
+		}
+
+		mUpgradedSplitters = 0;
+		mDismantledConveyors = 0;
+	};
+
+	void* SampleInstance = GetMutableDefault<AFGWorldSettings>();
+
+	SUBSCRIBE_METHOD_VIRTUAL_AFTER(AFGWorldSettings::NotifyBeginPlay,SampleInstance,NotifyBeginPlayHook);
 
 #endif // UE_BUILD_SHIPPING
 
