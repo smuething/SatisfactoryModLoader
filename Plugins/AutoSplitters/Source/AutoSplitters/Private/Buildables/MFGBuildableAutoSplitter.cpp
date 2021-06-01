@@ -9,6 +9,7 @@
 #include "AutoSplittersModule.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
+#include "AutoSplitters_ConfigStruct.h"
 
 #if AUTO_SPLITTERS_DEBUG
 #define DEBUG_THIS_SPLITTER mDebug
@@ -812,7 +813,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
     auto Candidates = make_array<4,UFGFactoryConnectionComponent*>(nullptr);
     int32 Assigned = 0;
-    bool Error = false;
+    const bool RemoveAllConveyors = FAutoSplitters_ConfigStruct::GetActiveConfig().Upgrade.RemoveAllConveyors;
     TInlineComponentArray<UFGFactoryConnectionComponent*,4> UnclearPartners;
 
     int32 idebug = 0;
@@ -869,7 +870,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         ++idebug;
     }
 
-    if (!Error)
+    if (!RemoveAllConveyors)
     {
         if (Assigned < PartnerCount)
         {
@@ -902,7 +903,7 @@ for (auto Partner : UnclearPartners)
         }
     }
 
-    if (!Error)
+    if (!RemoveAllConveyors)
     {
         for (int32 i = 0; i < 4; ++i)
         {
@@ -914,7 +915,7 @@ for (auto Partner : UnclearPartners)
     }
     else
     {
-        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Cannot determine correct connection setup, leaving connections disconnected and dismantling all conveyors"), this);
+        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Mod is configured to wipe all conveyors"), this);
         for (auto Partner: Partners)
         {
             if (Partner)
