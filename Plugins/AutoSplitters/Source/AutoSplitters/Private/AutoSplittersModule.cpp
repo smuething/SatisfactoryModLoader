@@ -57,6 +57,74 @@ void FAutoSplittersModule::StartupModule()
 
 		UE_LOG(LogAutoSplitters,Display,TEXT("Upgraded %d AutoSplitters while loading savegame"),mUpgradedSplitters);
 
+		UE_LOG(LogAutoSplitters,Display,TEXT("Disconnecting %d factory connection pairs"),mBrokenConnectionPairs.Num());
+
+		for (auto [first,second] : mBrokenConnectionPairs)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Disconnecting %p (%s) and %p (%s) distance="),
+				first,*first->GetComponentLocation().ToString(),
+				second,*second->GetComponentLocation().ToString(),
+				FVector::Dist(first->GetComponentLocation(),second->GetComponentLocation())
+				);
+
+			second->ClearConnection();
+		}
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Disconnected %d factory connection pairs"),mBrokenConnectionPairs.Num());
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Reconnecting %d factory connection pairs"),mPendingConnectionPairs.Num());
+
+		TMap<UFGFactoryConnectionComponent*,std::pair<UFGFactoryConnectionComponent*,UFGFactoryConnectionComponent*>> Components;
+
+		for (auto [first,second] : mPendingConnectionPairs)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Reconnecting %p (%s) and %p (%s) distance=%f"),
+				first,*first->GetComponentLocation().ToString(),
+				second,*second->GetComponentLocation().ToString(),
+				FVector::Dist(first->GetComponentLocation(),second->GetComponentLocation())
+				);
+
+			if (auto Pair = Components.Find(first); Pair != nullptr)
+			{
+				UE_LOG(LogAutoSplitters,Error,TEXT("Component %p also connects to (%p,%p)"),first,Pair->first,Pair->second);
+			}
+			Components.FindOrAdd(first) = {first,second};
+
+			if (auto Pair = Components.Find(second); Pair != nullptr)
+			{
+				UE_LOG(LogAutoSplitters,Error,TEXT("Component %p also connects to (%p,%p)"),second,Pair->first,Pair->second);
+			}
+			Components.FindOrAdd(second) = {first,second};
+
+			if (!((first->GetDirection() == EFactoryConnectionDirection::FCD_INPUT && second->GetDirection() == EFactoryConnectionDirection::FCD_OUTPUT) ||
+				(first->GetDirection() == EFactoryConnectionDirection::FCD_OUTPUT && second->GetDirection() == EFactoryConnectionDirection::FCD_INPUT)))
+			{
+				auto FirstDirection = EnumToFString("EFactoryConnectionDirection",static_cast<int32>(first->GetDirection()));
+				auto SecondDirection = EnumToFString("EFactoryConnectionDirection",static_cast<int32>(second->GetDirection()));
+				UE_LOG(LogAutoSplitters,Error,TEXT("Components have inconsistent directions: %s and %s"),*FirstDirection,*SecondDirection);
+			}
+
+			first->SetConnection(second);
+		}
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Reconnected %d factory connection pairs"),mPendingConnectionPairs.Num());
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Destroying %d connection components left over from old blueprints"),mOldBlueprintConnections.Num());
+
+		for (auto Connection : mOldBlueprintConnections)
+		{
+			UE_LOG(LogAutoSplitters,Display,TEXT("Destroying old component %s of splitter %p at %s"),
+				*Connection->GetName(),
+				Connection->GetAttachParent(),
+				*Connection->GetComponentLocation().ToString()
+				);
+
+			Connection->DestroyComponent(false);
+		}
+
+		UE_LOG(LogAutoSplitters,Display,TEXT("Destroyed %d connection components left over from old blueprints"),mOldBlueprintConnections.Num());
+
+
 		if (mBrokenConveyors.Num() > 0)
 		{
 
@@ -67,6 +135,8 @@ void FAutoSplittersModule::StartupModule()
 				UE_LOG(LogAutoSplitters,Display,TEXT("Dismantling conveyor %p (%s) at %s"),Conveyor,*Conveyor->GetName(),*Conveyor->GetActorLocation().ToString());
 				IFGDismantleInterface::Execute_Dismantle(Conveyor);
 			}
+
+			UE_LOG(LogAutoSplitters,Warning,TEXT("AutoSplitters Mod Upgrade: Dismantled %d Conveyors"),mBrokenConveyors.Num());
 
 			FString Str = FString::Printf(TEXT("Your savegame contained Auto Splitters created with versions of the mod older than 0.3.0, "\
 				"which connect to the attached conveyors in a wrong way. The mod has upgraded these Auto Splitters, but some connections could "\
@@ -82,6 +152,7 @@ void FAutoSplittersModule::StartupModule()
 
 		mUpgradedSplitters = 0;
 		mBrokenConveyors.Empty();
+		mPendingConnectionPairs.Empty();
 	};
 
 	void* SampleInstance = GetMutableDefault<AFGWorldSettings>();

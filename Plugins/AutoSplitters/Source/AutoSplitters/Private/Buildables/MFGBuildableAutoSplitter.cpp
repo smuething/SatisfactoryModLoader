@@ -267,7 +267,12 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
         {
             mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
             mOutputStates[i] = Flag(EOutputState::Automatic);
+            mRemainingItems[i] = 0;
+            mItemsPerCycle[i] = 0;
         }
+        mLeftInCycle = 0;
+        mCycleLength = 0;
+
         mOutputRates_DEPRECATED.Empty();
 
         SetPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
@@ -792,12 +797,15 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
         if (Partner)
         {
-            Partner->ClearConnection();
+            Module->mBrokenConnectionPairs.Add({c,Partner});
         }
 
         if (c->GetName() == TEXT("Output0") || c->GetName() == TEXT("Input0"))
         {
-            c->DestroyComponent(false);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*c->GetName());
+            //c->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+            RemoveOwnedComponent(c);
+            Module->mOldBlueprintConnections.Add(c);
             c = nullptr;
         }
     }
@@ -845,14 +853,12 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         if (LoopError)
         {
             UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best candidates are too close, marking connection for dismantling"), this, Partner);
-            Error = true;
             UnclearPartners.Add(Partner);
         }
 
         if (Candidates[MatchingConnection])
         {
             UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best connection %d has already been picked for %p"), this, Partner, MatchingConnection, Candidates[MatchingConnection]);
-            Error = true;
             UnclearPartners.Add(Partner);
         }
         else
@@ -882,8 +888,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
             }
         }
     }
-
-    for (auto Partner : UnclearPartners)
+for (auto Partner : UnclearPartners)
     {
         UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
         auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
@@ -901,9 +906,9 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     {
         for (int32 i = 0; i < 4; ++i)
         {
-            if (Candidates[i])
+            if (Candidates[i] && !UnclearPartners.Contains(Candidates[i]))
             {
-                Connections[i]->SetConnection(Candidates[i]);
+                Module->mPendingConnectionPairs.Add({Connections[i],Candidates[i]});
             }
         }
     }
