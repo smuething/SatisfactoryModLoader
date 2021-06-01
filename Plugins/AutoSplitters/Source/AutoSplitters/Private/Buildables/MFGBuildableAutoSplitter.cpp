@@ -825,7 +825,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         {
             auto ConnectionPos = Connections[i]->GetComponentLocation();
             float ConnectionDistance = FVector::Dist(ConnectionPos,PartnerPos);
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: ConnectionPos=%s Distance(%d,%p) = %f"),this,i,Partner,*ConnectionPos.ToString(),ConnectionDistance);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Connection %d Partner %p ConnectionPos=%s Distance = %f"),this,i,Partner,*ConnectionPos.ToString(),ConnectionDistance);
             if (std::abs(Distance - ConnectionDistance) < UPGRADE_POSITION_REQUIRED_DELTA)
             {
                 UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - %d and %d: distance delta too small (%f)"), this, Partner, MatchingConnection, i, Distance - ConnectionDistance );
@@ -868,12 +868,6 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         if (Assigned < PartnerCount)
         {
             UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
-            for (auto Partner : UnclearPartners)
-            {
-                UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Removing belt for partner %p"),this,Partner);
-                Execute_Dismantle(Partner->GetOuterBuildable());
-                ++Module->mDismantledConveyors;
-            }
         }
         for (int32 i = 0 ; i < 4 ; ++i)
         {
@@ -882,10 +876,18 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
             if (Connections[i]->GetDirection() == Candidates[i]->GetDirection())
             {
-                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s)"), this, i, *Connections[i]->GetName());
-                Error = true;
+                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s), marking conveyor for dismantling"), this, i, *Connections[i]->GetName());
+                UnclearPartners.Add(Candidates[i]);
+                Candidates[i] = nullptr;
             }
         }
+    }
+
+    for (auto Partner : UnclearPartners)
+    {
+        UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Removing attached conveyor for partner %p"),this,Partner);
+        Execute_Dismantle(Partner->GetOuterBuildable());
+        ++Module->mDismantledConveyors;
     }
 
     if (!Error)

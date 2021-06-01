@@ -3,6 +3,9 @@
 #include "Patching/NativeHookManager.h"
 
 #include "FGWorldSettings.h"
+#include "UI/FGPopupWidget.h"
+#include "FGPlayerController.h"
+#include "FGBlueprintFunctionLibrary.h"
 #include "Buildables/MFGBuildableAutoSplitter.h"
 
 #include "AutoSplittersLog.h"
@@ -41,7 +44,7 @@ void FAutoSplittersModule::StartupModule()
 
 	SUBSCRIBE_METHOD(IFGDismantleInterface::Execute_Upgrade,UpgradeHook);
 
-	auto NotifyBeginPlayHook = [&](auto WorldSettings)
+	auto NotifyBeginPlayHook = [&](AFGWorldSettings* WorldSettings)
 	{
 		if (mUpgradedSplitters == 0)
 			return;
@@ -51,6 +54,21 @@ void FAutoSplittersModule::StartupModule()
 		if (this->mDismantledConveyors > 0)
 		{
 			UE_LOG(LogAutoSplitters,Warning,TEXT("Dismantled %d conveyors during AutoSplitter upgrade"),mDismantledConveyors);
+
+			FString Str = FString::Printf(TEXT("Your savegame contained Auto Splitters created with versions of the mod older than 0.3.0. %d Auto Splitters were upgraded."),mUpgradedSplitters);
+
+			AFGPlayerController* LocalController = nullptr;
+			for (auto Iterator = WorldSettings->GetWorld()->GetPlayerControllerIterator() ; Iterator ; ++Iterator)
+			{
+				if (Iterator->Get()->IsLocalPlayerController())
+				{
+					LocalController = Cast<AFGPlayerController>(Iterator->Get());
+				}
+			}
+
+			FPopupClosed CloseDelegate;
+
+			UFGBlueprintFunctionLibrary::AddPopupWithCloseDelegate(LocalController,FText::FromString("Savegame upgraded to AutoSplitters 0.3.0+"),FText::FromString(Str),CloseDelegate);
 		}
 
 		mUpgradedSplitters = 0;
