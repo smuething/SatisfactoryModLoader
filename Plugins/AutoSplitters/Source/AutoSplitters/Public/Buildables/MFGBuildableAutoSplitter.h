@@ -83,6 +83,10 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     static constexpr int32 FRACTIONAL_RATE_MULTIPLIER = Pow_Constexpr(10,FRACTIONAL_RATE_DIGITS);
     static constexpr float INV_FRACTIONAL_RATE_MULTIPLIER = 1.0f / FRACTIONAL_RATE_MULTIPLIER;
 
+    static constexpr int32 FRACTIONAL_SHARE_DIGITS = 5;
+    static constexpr int64 FRACTIONAL_SHARE_MULTIPLIER = Pow_Constexpr(10,FRACTIONAL_SHARE_DIGITS);
+    static constexpr float INV_FRACTIONAL_SHARE_MULTIPLIER = 1.0f / FRACTIONAL_SHARE_MULTIPLIER;
+
     static constexpr float UPGRADE_POSITION_REQUIRED_DELTA = 100.0f;
 
 public:
@@ -262,11 +266,12 @@ public:
     }
 
     UFUNCTION(BlueprintCallable)
-    int32 BalanceNetwork(int32& SplitterCount_Out)
+    void BalanceNetwork(bool RootOnly = true)
     {
-        bool Result;
-        std::tie(Result,SplitterCount_Out) = BalanceNetwork_Internal(this);
-        return Result;
+        if (HasAuthority())
+            Server_BalanceNetwork(this,RootOnly);
+        else
+            RCO()->BalanceNetwork(this,RootOnly);
     }
 
     uint32 GetSplitterVersion() const
@@ -314,9 +319,10 @@ public:
         FNetworkNode* Input;
         int32 MaxInputRate;
         std::array<FNetworkNode*,NUM_OUTPUTS> Outputs;
+        std::array<int64,NUM_OUTPUTS> PotentialShares;
         std::array<int32,NUM_OUTPUTS> MaxOutputRates;
         int32 FixedDemand;
-        int32 Shares;
+        int64 Shares;
         int32 AllocatedInputRate;
         std::array<int32,NUM_OUTPUTS> AllocatedOutputRates;
         bool ConnectionStateChanged;
@@ -326,6 +332,7 @@ public:
             , Input(Input)
             , MaxInputRate(0)
             , Outputs({nullptr})
+            , PotentialShares({0})
             , MaxOutputRates({0})
             , FixedDemand(0)
             , Shares(0)
@@ -350,10 +357,13 @@ private:
     void FixupConnections();
     void SetupInitialDistributionState();
 
-    static std::tuple<bool,int32> BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
+    static std::tuple<bool,int32> Server_BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
 
     static std::tuple<AMFGBuildableAutoSplitter*, int32, bool>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
+
+    static std::tuple<AFGBuildableFactory*, int32, bool>
+    FindFactoryAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
     static bool DiscoverHierarchy(
         TArray<TArray<FNetworkNode>>& Nodes,
@@ -361,7 +371,7 @@ private:
         const int32 Level,
         FNetworkNode* InputNode,
         const int32 ChildInParent,
-        AMFGBuildableAutoSplitter* Root
+        AMFGBuildableAutoSplitter* Root, bool ExtractPotentialShares
     );
 
     void SetSplitterVersion(uint32 Version);

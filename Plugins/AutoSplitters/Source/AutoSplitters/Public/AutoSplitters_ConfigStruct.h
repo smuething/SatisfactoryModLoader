@@ -5,6 +5,7 @@
 #include "AutoSplitters_ConfigStruct.generated.h"
 
 struct FAutoSplitters_ConfigStruct_Upgrade;
+struct FAutoSplitters_ConfigStruct_Features;
 
 USTRUCT(BlueprintType)
 struct FAutoSplitters_ConfigStruct_Upgrade {
@@ -17,6 +18,14 @@ public:
     bool ShowWarningMessage;
 };
 
+USTRUCT(BlueprintType)
+struct FAutoSplitters_ConfigStruct_Features {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite)
+    bool RespectOverclocking;
+};
+
 /* Struct generated from Mod Configuration Asset '/AutoSplitters/AutoSplitters_Config' */
 USTRUCT(BlueprintType)
 struct FAutoSplitters_ConfigStruct {
@@ -24,6 +33,9 @@ struct FAutoSplitters_ConfigStruct {
 public:
     UPROPERTY(BlueprintReadWrite)
     FAutoSplitters_ConfigStruct_Upgrade Upgrade;
+
+    UPROPERTY(BlueprintReadWrite)
+    FAutoSplitters_ConfigStruct_Features Features;
 
     /* Retrieves active configuration value and returns object of this struct containing it */
     static FAutoSplitters_ConfigStruct GetActiveConfig() {

@@ -10,6 +10,8 @@
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 #include "AutoSplitters_ConfigStruct.h"
+#include "Chaos/AABB.h"
+#include "Chaos/AABB.h"
 
 #if AUTO_SPLITTERS_DEBUG
 #define DEBUG_THIS_SPLITTER mDebug
@@ -102,7 +104,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 
     if (mBalancingRequired)
     {
-        auto [valid,_] = BalanceNetwork_Internal(this,true);
+        auto [valid,_] = Server_BalanceNetwork(this,true);
         if (!valid)
         {
             // bail out for this tick
@@ -118,7 +120,7 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     }
     mNextInventorySlot = make_array<NUM_OUTPUTS>(MAX_INVENTORY_SIZE);
     mInventorySlotEnd = make_array<NUM_OUTPUTS>(0);
-    std::fill(mAssignedOutputs.begin(),mAssignedOutputs.end(),-1);
+    mAssignedOutputs = make_array<MAX_INVENTORY_SIZE>(-1);
 
     if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
     {
@@ -635,7 +637,7 @@ bool AMFGBuildableAutoSplitter::Server_SetTargetInputRate(float Rate)
     mTargetInputRate = IntRate;
 
     if (Changed)
-        BalanceNetwork_Internal(this);
+        Server_BalanceNetwork(this);
 
     return true;
 }
@@ -703,7 +705,7 @@ bool AMFGBuildableAutoSplitter::Server_SetOutputRate(const int32 Output, const f
         DownstreamAutoSplitter->mTargetInputRate = IntRate;
     }
 
-    auto [valid,_2] = BalanceNetwork_Internal(this);
+    auto [valid,_2] = Server_BalanceNetwork(this);
 
     if (!valid)
     {
@@ -737,7 +739,7 @@ bool AMFGBuildableAutoSplitter::Server_SetOutputAutomatic(int32 Output, bool Aut
         mOutputStates[Output] = SetFlag(mOutputStates[Output],EOutputState::Automatic,Automatic);
     }
 
-    auto [valid,_2] = BalanceNetwork_Internal(this);
+    auto [valid,_2] = Server_BalanceNetwork(this);
     if (!valid)
     {
         mOutputStates[Output] = SetFlag(mOutputStates[Output], EOutputState::Automatic,!Automatic);
@@ -1053,7 +1055,7 @@ void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
     mBalancingRequired = true;
 }
 
-std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly)
+std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly)
 {
     if (!ForSplitter)
     {
@@ -1106,10 +1108,12 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
         return {false,-1};
     }
 
+    const auto Config = FAutoSplitters_ConfigStruct::GetActiveConfig();
+
     // Now walk the tree to discover the whole network
     TArray<TArray<FNetworkNode>> Network;
     int32 SplitterCount = 0;
-    if (!DiscoverHierarchy(Network,Root,0,nullptr,INT32_MAX,Root))
+    if (!DiscoverHierarchy(Network,Root,0,nullptr, INT32_MAX,Root,Config.Features.RespectOverclocking))
     {
         Root->mBalancingRequired = true;
         return {false,-1};
@@ -1163,7 +1167,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
                 {
                     if (IsSet(Splitter.mOutputStates[i],EOutputState::Automatic))
                     {
-                        ++Node.Shares;
+                        Node.Shares += Node.PotentialShares[i];
                     }
                     else
                     {
@@ -1214,7 +1218,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
             }
 
             // Avoid division by zero
-            auto [RatePerShare,Remainder] = Node.Shares > 0 ? std::div(AvailableForShares, Node.Shares) : std::div_t{0,0};
+            auto [RatePerShare,Remainder] = Node.Shares > 0 ? std::div(static_cast<int64>(AvailableForShares) * FRACTIONAL_SHARE_MULTIPLIER, Node.Shares) : std::lldiv_t{0,0};
 
             if (Remainder != 0)
             {
@@ -1254,8 +1258,20 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
                     }
                     else
                     {
-                        Node.AllocatedOutputRates[i] = Node.Outputs[i]->FixedDemand + Node.Outputs[i]->Shares *
-                            RatePerShare;
+                        auto [ShareBasedRate,OutputRemainder] = std::div(RatePerShare * Node.Outputs[i]->Shares,FRACTIONAL_SHARE_MULTIPLIER);
+                        if (OutputRemainder != 0)
+                        {
+                            UE_LOG(
+                                LogAutoSplitters,
+                                Warning,
+                                TEXT("Could not calculate fixed precision output rate for output %d (autosplitter): RatePerShare=%d Shares=%d rate=%d remainder=%d"),
+                                RatePerShare,
+                                Node.Outputs[i]->Shares,
+                                ShareBasedRate,
+                                OutputRemainder
+                            );
+                        }
+                        Node.AllocatedOutputRates[i] = Node.Outputs[i]->FixedDemand + ShareBasedRate;
                     }
                     Node.Outputs[i]->AllocatedInputRate = Node.AllocatedOutputRates[i];
                 }
@@ -1265,7 +1281,21 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
                     {
                         if (IsSet(Splitter.mOutputStates[i], EOutputState::Automatic))
                         {
-                            Node.AllocatedOutputRates[i] = RatePerShare;
+                            auto [Rate,OutputRemainder] = std::div(RatePerShare * Node.PotentialShares[i],FRACTIONAL_SHARE_MULTIPLIER);
+                            if (OutputRemainder != 0)
+                            {
+                                UE_LOG(
+                                    LogAutoSplitters,
+                                    Warning,
+                                    TEXT("Could not calculate fixed precision output rate for output %d: RatePerShare=%d PotentialShares=%d rate=%d remainder=%d"),
+                                    RatePerShare,
+                                    Node.PotentialShares[i],
+                                    Rate,
+                                    OutputRemainder
+                                );
+                                Valid = false;
+                            }
+                            Node.AllocatedOutputRates[i] = Rate;
                         }
                         else
                         {
@@ -1363,13 +1393,46 @@ std::tuple<AMFGBuildableAutoSplitter*, int32, bool> AMFGBuildableAutoSplitter::F
     return {nullptr,0,true};
 }
 
+std::tuple<AFGBuildableFactory*, int32, bool> AMFGBuildableAutoSplitter::FindFactoryAndMaxBeltRate(
+    UFGFactoryConnectionComponent* Connection, bool Forward)
+{
+    int32 Rate = INT32_MAX;
+    while (Connection->IsConnected())
+    {
+        Connection = Connection->GetConnection();
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Connection->GetOuterBuildable()->HasActorBegunPlay())
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Encountered not-ready actor %p of type %s"),
+                Connection->GetOuterBuildable(),
+                *Connection->GetOuterBuildable()->StaticClass()->GetName()
+                );
+#endif
+
+            return {0,0,false};
+        }
+#endif
+        const auto Belt = Cast<AFGBuildableConveyorBase>(Connection->GetOuterBuildable());
+        if (Belt)
+        {
+            Connection = Forward ? Belt->GetConnection1() : Belt->GetConnection0();
+            Rate = std::min(Rate,static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_MULTIPLIER / 2));
+            continue;
+        }
+        return {Cast<AFGBuildableFactory>(Connection->GetOuterBuildable()),Rate,true};
+    }
+    return {nullptr,0,true};
+}
+
 bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
     TArray<TArray<FNetworkNode>>& Nodes,
     AMFGBuildableAutoSplitter* Splitter,
     const int32 Level,
     FNetworkNode* InputNode,
     const int32 ChildInParent,
-    AMFGBuildableAutoSplitter* Root
+    AMFGBuildableAutoSplitter* Root,
+    bool ExtractPotentialShares
 )
 {
     if (!Splitter->HasActorBegunPlay())
@@ -1401,7 +1464,7 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
     }
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
-        const auto [Downstream,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+        const auto [Downstream,MaxRate,Ready] = FindFactoryAndMaxBeltRate(Splitter->mOutputs[i], true);
 #if AUTO_SPLITTERS_DELAY_UNTIL_READY
         if (!Ready)
         {
@@ -1414,9 +1477,20 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
         Node.MaxOutputRates[i] = MaxRate;
         if (Downstream)
         {
-            if (!DiscoverHierarchy(Nodes, Downstream, Level + 1, &Node, i, Root))
+            const auto DownstreamAutoSplitter = Cast<AMFGBuildableAutoSplitter>(Downstream);
+            if (DownstreamAutoSplitter)
             {
-                return false;
+                if (!DiscoverHierarchy(Nodes, DownstreamAutoSplitter, Level + 1, &Node, i, Root, ExtractPotentialShares))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (ExtractPotentialShares)
+                    Node.PotentialShares[i] = static_cast<int32>(Downstream->GetPendingPotential() * FRACTIONAL_SHARE_MULTIPLIER);
+                else
+                    Node.PotentialShares[i] = FRACTIONAL_SHARE_MULTIPLIER;
             }
         }
     }

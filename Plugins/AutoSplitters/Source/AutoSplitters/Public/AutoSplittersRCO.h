@@ -34,6 +34,9 @@ public:
     UFUNCTION(Server,Reliable)
     void SetOutputAutomatic(AMFGBuildableAutoSplitter* Splitter, int32 Output, bool Automatic) const;
 
+    UFUNCTION(Server,Reliable)
+    void BalanceNetwork(AMFGBuildableAutoSplitter* Splitter, bool RootOnly) const;
+
 private:
 
     UPROPERTY(Replicated)

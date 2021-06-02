@@ -36,3 +36,8 @@ void UAutoSplittersRCO::SetOutputRate_Implementation(AMFGBuildableAutoSplitter* 
 {
     Splitter->Server_SetOutputRate(Output,Rate);
 }
+
+void UAutoSplittersRCO::BalanceNetwork_Implementation(AMFGBuildableAutoSplitter* Splitter, bool RootOnly) const
+{
+    Splitter->Server_BalanceNetwork(Splitter,RootOnly);
+}
