@@ -18,7 +18,5 @@ class AUTOSPLITTERS_API UAutoSplittersInitGameInstance : public UGameInstanceMod
 
 public:
 
-    UAutoSplittersInitGameInstance();
-
     virtual void DispatchLifecycleEvent(ELifecyclePhase Phase) override;
 };

@@ -5,15 +5,12 @@
 
 #include "Registry/RemoteCallObjectRegistry.h"
 #include "AutoSplittersLog.h"
-#include "AutoSplittersRCO.h"
-
-UAutoSplittersInitGameInstance::UAutoSplittersInitGameInstance()
-{
-    bRootModule = true;
-}
+//#include "AutoSplittersRCO.h"
 
 void UAutoSplittersInitGameInstance::DispatchLifecycleEvent(ELifecyclePhase Phase)
 {
+    UE_LOG(LogAutoSplitters,Display,TEXT("In UAutoSplittersInitGameInstance::DispatchLifecycleEvent()"));
+    Super::DispatchLifecycleEvent(Phase);
     switch(Phase)
     {
         case ELifecyclePhase::CONSTRUCTION:

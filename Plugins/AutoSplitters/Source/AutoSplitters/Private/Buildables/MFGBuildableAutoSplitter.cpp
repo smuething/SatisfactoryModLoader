@@ -4,9 +4,12 @@
 
 #include <numeric>
 
+#include <Modules/ModuleManager.h>
 #include "AutoSplittersLog.h"
+#include "AutoSplittersModule.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
+#include "AutoSplitters_ConfigStruct.h"
 
 #if AUTO_SPLITTERS_DEBUG
 #define DEBUG_THIS_SPLITTER mDebug
@@ -119,7 +122,11 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
 
     if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
     {
-        auto [_,Rate] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
+        auto [_,Rate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Ready)
+            return;
+#endif
         mTargetInputRate = Rate;
     }
 
@@ -278,11 +285,31 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
     {
         UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading saved Auto Splitter from version 0 to 1"));
 
+#if AUTO_SPLITTERS_DEBUG
+
+        TInlineComponentArray<UFGFactoryConnectionComponent*,6> Connections;
+
+        GetComponents(Connections);
+
+        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: connections=%d outputrates_deprecated=%d outputstates=(%d %d %d)"),
+            this,
+            Connections.Num(),
+            mOutputRates_DEPRECATED.Num(),
+            mOutputStates[0],mOutputStates[1],mOutputStates[2]
+            );
+
+#endif
+
         for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
         {
             mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
             mOutputStates[i] = Flag(EOutputState::Automatic);
+            mRemainingItems[i] = 0;
+            mItemsPerCycle[i] = 0;
         }
+        mLeftInCycle = 0;
+        mCycleLength = 0;
+
         mOutputRates_DEPRECATED.Empty();
 
         SetPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
@@ -656,7 +683,8 @@ bool AMFGBuildableAutoSplitter::SetOutputRate_Implementation(const int32 Output,
     int32 OldRate = mIntegralOutputRates[Output];
     mIntegralOutputRates[Output] = IntRate;
 
-    auto [DownstreamAutoSplitter,_] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
+    auto [DownstreamAutoSplitter,_,Ready] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
+
     bool OldManualInputRate = false;
     int32 OldTargetInputRate = 0;
     if (DownstreamAutoSplitter)
@@ -691,7 +719,7 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic_Implementation(int32 Output, 
     if (Automatic == IsSet(mOutputStates[Output],EOutputState::Automatic))
         return true;
 
-    auto [DownstreamAutoSplitter,_] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
+    auto [DownstreamAutoSplitter,_,Ready] = FindAutoSplitterAndMaxBeltRate(mOutputs[Output],true);
     if (DownstreamAutoSplitter)
     {
         DownstreamAutoSplitter->SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
@@ -734,50 +762,263 @@ constexpr std::array<int32,4> GPartner_Map = {0,1,3,5};
 
 void AMFGBuildableAutoSplitter::FixupConnections()
 {
+
+    auto Module = FModuleManager::GetModulePtr<FAutoSplittersModule>("AutoSplitters");
+
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Connections;
     GetComponents(Connections);
 
     UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"), Connections.Num());
 
-    TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Partners;
+#if AUTO_SPLITTERS_DEBUG
 
+    UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: connections=%d outputrates_deprecated=%d outputstates=(%d %d %d)"),
+        this,
+        Connections.Num(),
+        mOutputRates_DEPRECATED.Num(),
+        mOutputStates[0],mOutputStates[1],mOutputStates[2]
+        );
+
+#endif
+
+    TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Partners;
+    int32 PartnerCount = 0;
+
+    int32 ii = 0;
     for (auto& c : Connections)
     {
         UFGFactoryConnectionComponent* Partner = c->IsConnected() ? c->GetConnection() : nullptr;
         Partners.Add(Partner);
+        PartnerCount += Partner != nullptr;
+
+#if AUTO_SPLITTERS_DEBUG
+
         auto Pos = this->GetTransform().InverseTransformPosition(c->GetComponentLocation());
         auto Rot = this->GetTransform().InverseTransformRotation(c->GetComponentRotation().Quaternion());
+
+        UE_LOG(LogAutoSplitters,Display,
+            TEXT("Splitter %p: component %d (%s) - %p connected=%s direction=%s global=%s pos=%s rot=%s"),
+            this,
+            ii,
+            *c->GetName(),
+            c,
+            c->IsConnected() ? TEXT("true") : TEXT("false"),
+            c->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("Input") : TEXT("Output"),
+            *c->GetComponentLocation().ToString(),
+            *Pos.ToString(),
+            *Rot.ToString()
+            );
+
         if (Partner)
         {
-            Partner->ClearConnection();
+            Pos = this->GetTransform().InverseTransformPosition(Partner->GetComponentLocation());
+            Rot = this->GetTransform().InverseTransformRotation(Partner->GetComponentRotation().Quaternion());
+            UE_LOG(LogAutoSplitters,Display,
+                TEXT("Splitter %p: component %d partner (%s) - %p connected=%s direction=%s global=%s pos=%s rot=%s"),
+                this,
+                ii,
+                *Partner->GetName(),
+                Partner,
+                Partner->IsConnected() ? TEXT("true") : TEXT("false"),
+                Partner->GetDirection() == EFactoryConnectionDirection::FCD_INPUT ? TEXT("Input") : TEXT("Output"),
+                *Partner->GetComponentLocation().ToString(),
+                *Pos.ToString(),
+                *Rot.ToString()
+                );
+
+            auto Belt = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
+            if (!Belt)
+            {
+                UE_LOG(LogAutoSplitters,Error,
+                    TEXT("Splitter %p: component %d partner is no belt, but a %s"),
+                    this,
+                    ii,
+                    *Partner->GetOuterBuildable()->StaticClass()->GetName()
+                    );
+            }
+            else
+            {
+                UE_LOG(LogAutoSplitters,Display,
+                    TEXT("Splitter %p: belt connection0=%p connection1=%p"),
+                    this,
+                    Belt->GetConnection0(),
+                    Belt->GetConnection1()
+                    );
+            }
+        }
+
+        ++ii;
+
+#endif
+
+        if (Partner)
+        {
+            Module->mBrokenConnectionPairs.Add({c,Partner});
         }
 
         if (c->GetName() == TEXT("Output0") || c->GetName() == TEXT("Input0"))
         {
-            c->DestroyComponent(false);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*c->GetName());
+            //c->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+            RemoveOwnedComponent(c);
+            Module->mOldBlueprintConnections.Add(c);
             c = nullptr;
         }
     }
 
-    for (int32 i = 0; i < 4; ++i)
+    auto Candidates = make_array<4,UFGFactoryConnectionComponent*>(nullptr);
+    int32 Assigned = 0;
+    const bool RemoveAllConveyors = FAutoSplitters_ConfigStruct::GetActiveConfig().Upgrade.RemoveAllConveyors;
+    TInlineComponentArray<UFGFactoryConnectionComponent*,4> UnclearPartners;
+
+    int32 idebug = 0;
+    for (auto Partner : Partners)
     {
-        if (Partners[GPartner_Map[i]])
+        if (!Partner)
         {
-            Connections[i]->SetConnection(Partners[GPartner_Map[i]]);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %d does not exist, skipping"),this,idebug);
+            ++idebug;
+            continue;
+        }
+        auto PartnerPos = Partner->GetComponentLocation();
+        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %p (%d) position=%s"),this,Partner,idebug,*PartnerPos.ToString());
+        float Distance = INFINITY;
+        int32 MatchingConnection = -1;
+        bool LoopError = false;
+        for (int32 i = 0 ; i < 4 ; ++i)
+        {
+            auto ConnectionPos = Connections[i]->GetComponentLocation();
+            float ConnectionDistance = FVector::Dist(ConnectionPos,PartnerPos);
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Connection %d Partner %p ConnectionPos=%s Distance = %f"),this,i,Partner,*ConnectionPos.ToString(),ConnectionDistance);
+            if (std::abs(Distance - ConnectionDistance) < UPGRADE_POSITION_REQUIRED_DELTA)
+            {
+                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - %d and %d: distance delta too small (%f)"), this, Partner, MatchingConnection, i, Distance - ConnectionDistance );
+                LoopError = true;
+                continue;
+            }
+
+            if (ConnectionDistance < Distance)
+            {
+                UE_LOG( LogAutoSplitters, Display, TEXT("Splitter %p: Partner %p - picking connection %d"), this, Partner, i );
+                Distance = ConnectionDistance;
+                MatchingConnection = i;
+                LoopError = false;
+            }
+        }
+
+        if (LoopError)
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best candidates are too close, marking connection for dismantling"), this, Partner);
+            UnclearPartners.Add(Partner);
+        }
+
+        if (Candidates[MatchingConnection])
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best connection %d has already been picked for %p"), this, Partner, MatchingConnection, Candidates[MatchingConnection]);
+            UnclearPartners.Add(Partner);
+        }
+        else
+        {
+            Candidates[MatchingConnection] = Partner;
+            ++Assigned;
+        }
+        ++idebug;
+    }
+
+    if (!RemoveAllConveyors)
+    {
+        if (Assigned < PartnerCount)
+        {
+            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
+        }
+        for (int32 i = 0 ; i < 4 ; ++i)
+        {
+            if (!Candidates[i])
+                continue;
+
+            if (Connections[i]->GetDirection() == Candidates[i]->GetDirection())
+            {
+                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s), marking conveyor for dismantling"), this, i, *Connections[i]->GetName());
+                UnclearPartners.Add(Candidates[i]);
+                Candidates[i] = nullptr;
+            }
+        }
+    }
+for (auto Partner : UnclearPartners)
+    {
+        UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
+        auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
+        if (!Conveyor)
+        {
+            UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
+        }
+        else
+        {
+            Module->mBrokenConveyors.Add(Conveyor);
+        }
+    }
+
+    if (!RemoveAllConveyors)
+    {
+        for (int32 i = 0; i < 4; ++i)
+        {
+            if (Candidates[i] && !UnclearPartners.Contains(Candidates[i]))
+            {
+                Module->mPendingConnectionPairs.Add({Connections[i],Candidates[i]});
+            }
+        }
+    }
+    else
+    {
+        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Mod is configured to wipe all conveyors"), this);
+        for (auto Partner: Partners)
+        {
+            if (Partner)
+            {
+                UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
+                auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
+                if (!Conveyor)
+                {
+                    UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
+                }
+                else
+                {
+                    Module->mBrokenConveyors.Add(Conveyor);
+                }
+            }
         }
     }
 
     ClearPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
+    ++Module->mUpgradedSplitters;
     mNeedsInitialDistributionSetup = true;
 }
 
 void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
 {
-    auto [InputSplitter,MaxInputRate] = FindAutoSplitterAndMaxBeltRate(mInputs[0], false);
+    auto [InputSplitter,MaxInputRate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0], false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+    if (!Ready)
+    {
+#if AUTO_SPLITTERS_DEBUG
+        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),this);
+#endif
+        return;
+    }
+#endif
     mTargetInputRate = MaxInputRate;
     for (int32 i = 0; i < NUM_OUTPUTS; ++i)
     {
-        auto [OutputSplitter,MaxRate] = FindAutoSplitterAndMaxBeltRate(mOutputs[i], true);
+        auto [OutputSplitter,MaxRate,Ready2] = FindAutoSplitterAndMaxBeltRate(mOutputs[i], true);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Ready2)
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),this);
+#endif
+            return;
+        }
+#endif
         if (MaxRate > 0)
         {
             mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
@@ -806,7 +1047,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
         return {false,-1};
     }
 
-    if(!ForSplitter->HasActorBegunPlay())
+    if(ForSplitter->IsPersistentFlagSet(NEEDS_CONNECTIONS_FIXUP) || !ForSplitter->HasActorBegunPlay())
     {
         return {false,-1};
     }
@@ -816,12 +1057,21 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
     auto Root = ForSplitter;
     SplitterSet.Add(Root);
     for (
-        auto [Current,Rate] = FindAutoSplitterAndMaxBeltRate(Root->mInputs[0],false) ;
+        auto [Current,Rate,Ready] = FindAutoSplitterAndMaxBeltRate(Root->mInputs[0],false) ;
         Current ;
-        std::tie(Current,Rate) = FindAutoSplitterAndMaxBeltRate(Current->mInputs[0],false)
+        std::tie(Current,Rate,Ready) = FindAutoSplitterAndMaxBeltRate(Current->mInputs[0],false)
         )
     {
-        if (!Current->HasActorBegunPlay())
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Ready)
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Current);
+#endif
+            return {false,-1};
+        }
+#endif
+        if (Current->IsPersistentFlagSet(NEEDS_CONNECTIONS_FIXUP) || !Current->HasActorBegunPlay())
             return {false,-1};
         if (SplitterSet.Contains(Current))
         {
@@ -1063,13 +1313,26 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::BalanceNetwork_Internal(AMFGBu
     return {true,SplitterCount};
 }
 
-std::tuple<AMFGBuildableAutoSplitter*,int32> AMFGBuildableAutoSplitter::FindAutoSplitterAndMaxBeltRate(
+std::tuple<AMFGBuildableAutoSplitter*, int32, bool> AMFGBuildableAutoSplitter::FindAutoSplitterAndMaxBeltRate(
     UFGFactoryConnectionComponent* Connection, bool Forward)
 {
     int32 Rate = INT32_MAX;
     while (Connection->IsConnected())
     {
         Connection = Connection->GetConnection();
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Connection->GetOuterBuildable()->HasActorBegunPlay())
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Encountered not-ready actor %p of type %s"),
+                Connection->GetOuterBuildable(),
+                *Connection->GetOuterBuildable()->StaticClass()->GetName()
+                );
+#endif
+
+            return {0,0,false};
+        }
+#endif
         const auto Belt = Cast<AFGBuildableConveyorBase>(Connection->GetOuterBuildable());
         if (Belt)
         {
@@ -1077,9 +1340,9 @@ std::tuple<AMFGBuildableAutoSplitter*,int32> AMFGBuildableAutoSplitter::FindAuto
             Rate = std::min(Rate,static_cast<int32>(Belt->GetSpeed()) * (FRACTIONAL_RATE_MULTIPLIER / 2));
             continue;
         }
-        return {Cast<AMFGBuildableAutoSplitter>(Connection->GetOuterBuildable()),Rate};
+        return {Cast<AMFGBuildableAutoSplitter>(Connection->GetOuterBuildable()),Rate,true};
     }
-    return {nullptr,0};
+    return {nullptr,0,true};
 }
 
 bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
@@ -1106,12 +1369,30 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
     }
     else
     {
-        auto [_,MaxRate] = FindAutoSplitterAndMaxBeltRate(Splitter->mInputs[0],false);
+        auto [_,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mInputs[0],false);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Ready)
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Splitter);
+#endif
+            return false;
+        }
+#endif
         Node.MaxInputRate = MaxRate;
     }
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
-        const auto [Downstream,MaxRate] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+        const auto [Downstream,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mOutputs[i], true);
+#if AUTO_SPLITTERS_DELAY_UNTIL_READY
+        if (!Ready)
+        {
+#if AUTO_SPLITTERS_DEBUG
+            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Splitter);
+#endif
+            return false;
+        }
+#endif
         Node.MaxOutputRates[i] = MaxRate;
         if (Downstream)
         {

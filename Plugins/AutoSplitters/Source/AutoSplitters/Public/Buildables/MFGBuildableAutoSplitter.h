@@ -83,6 +83,8 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     static constexpr int32 FRACTIONAL_RATE_MULTIPLIER = Pow_Constexpr(10,FRACTIONAL_RATE_DIGITS);
     static constexpr float INV_FRACTIONAL_RATE_MULTIPLIER = 1.0f / FRACTIONAL_RATE_MULTIPLIER;
 
+    static constexpr float UPGRADE_POSITION_REQUIRED_DELTA = 100.0f;
+
 public:
 
     AMFGBuildableAutoSplitter();
@@ -346,7 +348,7 @@ private:
 
     static std::tuple<bool,int32> BalanceNetwork_Internal(AMFGBuildableAutoSplitter* ForSplitter, bool RootOnly = false);
 
-    static std::tuple<AMFGBuildableAutoSplitter*,int32>
+    static std::tuple<AMFGBuildableAutoSplitter*, int32, bool>
     FindAutoSplitterAndMaxBeltRate(UFGFactoryConnectionComponent* Connection, bool Forward);
 
     static bool DiscoverHierarchy(
