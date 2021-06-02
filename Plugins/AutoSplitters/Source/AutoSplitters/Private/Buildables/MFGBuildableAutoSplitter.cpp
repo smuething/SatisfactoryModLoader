@@ -612,9 +612,16 @@ void AMFGBuildableAutoSplitter::Server_EnableReplication(float Duration)
 
 bool AMFGBuildableAutoSplitter::Server_SetTargetRateAutomatic(bool Automatic)
 {
+    if (Automatic == !IsPersistentFlagSet(MANUAL_INPUT_RATE))
+        return true;
+
     SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
-    if (!Automatic)
-        mTargetInputRate = 0; // will trigger an update during the next factory tick
+    auto [valid, _] = Server_BalanceNetwork(this);
+    if (!valid)
+    {
+        SetPersistentFlag(MANUAL_INPUT_RATE,Automatic);
+        return false;
+    }
     return true;
 }
 
