@@ -67,10 +67,10 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     friend class AMFGAutoSplitterHologram;
     friend class UAutoSplittersRCO;
 
-    static constexpr uint32 MANUAL_INPUT_RATE       = 1 <<  8;
-    static constexpr uint32 NEEDS_CONNECTIONS_FIXUP = 1 <<  9;
+    static constexpr uint32 MANUAL_INPUT_RATE         = 1 <<  8;
+    static constexpr uint32 NEEDS_CONNECTIONS_FIXUP   = 1 <<  9;
 
-    static constexpr uint32 IS_REPLICATION_ENABLED  = 1 <<  8;
+    static constexpr uint32 IS_REPLICATION_ENABLED    = 1 <<  8;
 
     static constexpr uint32 VERSION = 1;
 
@@ -100,21 +100,23 @@ protected:
     virtual bool Factory_GrabOutput_Implementation( UFGFactoryConnectionComponent* connection, FInventoryItem& out_item, float& out_OffsetBeyond, TSubclassOf< UFGItemDescriptor > type ) override;
     virtual void FillDistributionTable(float dt) override;
 
-    void EnableReplication_Implementation(float Duration);
-
     UAutoSplittersRCO* RCO() const
     {
         UWorld* World = GetWorld();
         return Cast<UAutoSplittersRCO>(Cast<AFGPlayerController>(World->GetFirstPlayerController())->GetRemoteCallObjectOfClass(UAutoSplittersRCO::StaticClass()));
     }
 
-    bool SetTargetRateAutomatic_Implementation(bool Automatic);
+    void Server_EnableReplication(float Duration);
 
-    bool SetTargetInputRate_Implementation(float Rate);
+    bool Server_SetTargetRateAutomatic(bool Automatic);
 
-    bool SetOutputRate_Implementation(int32 Output, float Rate);
+    bool Server_SetTargetInputRate(float Rate);
 
-    bool SetOutputAutomatic_Implementation(int32 Output, bool Automatic);
+    bool Server_SetOutputRate(int32 Output, float Rate);
+
+    bool Server_SetOutputAutomatic(int32 Output, bool Automatic);
+
+    void Server_ReplicationEnabledTimeout();
 
 private:
 
@@ -185,6 +187,8 @@ private:
     float mCycleTime;
     int32 mReallyGrabbed;
 
+    FTimerHandle mReplicationTimer;
+
 public:
 
     UFUNCTION(BlueprintPure)
@@ -203,7 +207,7 @@ public:
     void EnableReplication(float Duration)
     {
         if (HasAuthority())
-            EnableReplication_Implementation(Duration);
+            Server_EnableReplication(Duration);
         else
             RCO()->EnableReplication(this,Duration);
     }
@@ -218,7 +222,7 @@ public:
     void SetTargetRateAutomatic(bool Automatic)
     {
         if (HasAuthority())
-            SetTargetRateAutomatic_Implementation(Automatic);
+            Server_SetTargetRateAutomatic(Automatic);
         else
             RCO()->SetTargetRateAutomatic(this,Automatic);
     }
@@ -231,7 +235,7 @@ public:
     void SetTargetInputRate(float Rate)
     {
         if (HasAuthority())
-            SetTargetInputRate_Implementation(Rate);
+            Server_SetTargetInputRate(Rate);
         else
             RCO()->SetTargetInputRate(this,Rate);
     }
@@ -243,7 +247,7 @@ public:
     void SetOutputRate(int32 Output, float Rate)
     {
         if (HasAuthority())
-            SetOutputRate_Implementation(Output,Rate);
+            Server_SetOutputRate(Output,Rate);
         else
             RCO()->SetOutputRate(this,Output,Rate);
     }
@@ -252,7 +256,7 @@ public:
     void SetOutputAutomatic(int32 Output, bool Automatic)
     {
         if (HasAuthority())
-            SetOutputAutomatic_Implementation(Output,Automatic);
+            Server_SetOutputAutomatic(Output,Automatic);
         else
             RCO()->SetOutputAutomatic(this,Output,Automatic);
     }

@@ -595,12 +595,20 @@ void AMFGBuildableAutoSplitter::PrepareCycle(const bool AllowCycleExtension, con
     }
 }
 
-void AMFGBuildableAutoSplitter::EnableReplication_Implementation(float Duration)
+void AMFGBuildableAutoSplitter::Server_EnableReplication(float Duration)
 {
-  SetTransientFlag(IS_REPLICATION_ENABLED);
+    if (!HasAuthority())
+    {
+        UE_LOG(LogAutoSplitters,Fatal,TEXT("AMFGBuildableAutoSplitter::Server_EnableReplication() may only be called on server"));
+    }
+
+    UE_LOG(LogAutoSplitters,Display,TEXT("Enabling full data replication for Auto Splitter %p"),this);
+
+    SetTransientFlag(IS_REPLICATION_ENABLED);
+    GetWorldTimerManager().SetTimer(mReplicationTimer,this,&AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout,Duration,false);
 }
 
-bool AMFGBuildableAutoSplitter::SetTargetRateAutomatic_Implementation(bool Automatic)
+bool AMFGBuildableAutoSplitter::Server_SetTargetRateAutomatic(bool Automatic)
 {
     SetPersistentFlag(MANUAL_INPUT_RATE,!Automatic);
     if (!Automatic)
@@ -613,7 +621,7 @@ float AMFGBuildableAutoSplitter::GetTargetInputRate() const
     return mTargetInputRate * INV_FRACTIONAL_RATE_MULTIPLIER;
 }
 
-bool AMFGBuildableAutoSplitter::SetTargetInputRate_Implementation(float Rate)
+bool AMFGBuildableAutoSplitter::Server_SetTargetInputRate(float Rate)
 {
     if (Rate < 0)
         return false;
@@ -640,7 +648,7 @@ float AMFGBuildableAutoSplitter::GetOutputRate(int32 Output) const
     return static_cast<float>(mIntegralOutputRates[Output]) * INV_FRACTIONAL_RATE_MULTIPLIER;
 }
 
-bool AMFGBuildableAutoSplitter::SetOutputRate_Implementation(const int32 Output, const float Rate)
+bool AMFGBuildableAutoSplitter::Server_SetOutputRate(const int32 Output, const float Rate)
 {
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
     {
@@ -710,7 +718,7 @@ bool AMFGBuildableAutoSplitter::SetOutputRate_Implementation(const int32 Output,
     return valid;
 }
 
-bool AMFGBuildableAutoSplitter::SetOutputAutomatic_Implementation(int32 Output, bool Automatic)
+bool AMFGBuildableAutoSplitter::Server_SetOutputAutomatic(int32 Output, bool Automatic)
 {
 
     if (Output < 0 || Output > NUM_OUTPUTS - 1)
@@ -756,6 +764,16 @@ bool AMFGBuildableAutoSplitter::SetOutputAutomatic_Implementation(int32 Output, 
         );
     }
     return valid;
+}
+
+void AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout()
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogAutoSplitters,Fatal,TEXT("AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout() may only be called on server"));
+    }
+    UE_LOG(LogAutoSplitters,Display,TEXT("Disabling full data replication for Auto Splitter %p"),this);
+    ClearTransientFlag(IS_REPLICATION_ENABLED);
 }
 
 constexpr std::array<int32,4> GPartner_Map = {0,1,3,5};

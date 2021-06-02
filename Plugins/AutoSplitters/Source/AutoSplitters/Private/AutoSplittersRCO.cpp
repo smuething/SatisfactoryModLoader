@@ -13,26 +13,26 @@ void UAutoSplittersRCO::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 void UAutoSplittersRCO::SetOutputAutomatic_Implementation(AMFGBuildableAutoSplitter* Splitter, int32 Output,
                                                           bool Automatic) const
 {
-    Splitter->SetOutputAutomatic_Implementation(Output,Automatic);
+    Splitter->Server_SetOutputAutomatic(Output,Automatic);
 }
 
 void UAutoSplittersRCO::EnableReplication_Implementation(AMFGBuildableAutoSplitter* Splitter, float Duration) const
 {
-    Splitter->EnableReplication_Implementation(Duration);
+    Splitter->Server_EnableReplication(Duration);
 }
 
 void UAutoSplittersRCO::SetTargetInputRate_Implementation(AMFGBuildableAutoSplitter* Splitter, float Rate) const
 {
-    Splitter->SetTargetInputRate_Implementation(Rate);
+    Splitter->Server_SetTargetInputRate(Rate);
 }
 
 void UAutoSplittersRCO::SetTargetRateAutomatic_Implementation(AMFGBuildableAutoSplitter* Splitter, bool Automatic) const
 {
-    Splitter->SetTargetRateAutomatic_Implementation(Automatic);
+    Splitter->Server_SetTargetRateAutomatic(Automatic);
 }
 
 void UAutoSplittersRCO::SetOutputRate_Implementation(AMFGBuildableAutoSplitter* Splitter, int32 Output,
     float Rate) const
 {
-    Splitter->SetOutputRate_Implementation(Output,Rate);
+    Splitter->Server_SetOutputRate(Output,Rate);
 }

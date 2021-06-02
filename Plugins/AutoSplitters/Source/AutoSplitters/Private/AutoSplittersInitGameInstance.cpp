@@ -5,7 +5,7 @@
 
 #include "Registry/RemoteCallObjectRegistry.h"
 #include "AutoSplittersLog.h"
-//#include "AutoSplittersRCO.h"
+#include "AutoSplittersRCO.h"
 
 void UAutoSplittersInitGameInstance::DispatchLifecycleEvent(ELifecyclePhase Phase)
 {
