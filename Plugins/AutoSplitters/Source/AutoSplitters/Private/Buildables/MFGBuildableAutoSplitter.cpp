@@ -327,6 +327,15 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
+
+    TInlineComponentArray<USceneComponent*,10> Components;
+    GetComponents(Components);
+
+    for (auto Component : Components)
+    {
+        UE_LOG(LogAutoSplitters,Display,TEXT("Component: %s"),*Component->GetName());
+    }
+
     // we need to fix the connection wiring before calling into our parent class
     if (HasAuthority())
     {
@@ -795,7 +804,28 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Connections;
     GetComponents(Connections);
 
-    UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"), Connections.Num());
+    UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"));
+
+    auto& [This,OldBluePrintConnections,ConveyorConnections] = Module->mPreUpgradeSplitters.Add_GetRef({this,{},{}});
+
+    for (auto Connection : Connections)
+    {
+
+        if (Connection->GetName() == TEXT("Output0") || Connection->GetName() == TEXT("Input0"))
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*Connection->GetName());
+            RemoveOwnedComponent(Connection);
+            OldBluePrintConnections.Emplace(Connection);
+        }
+
+        if (Connection->IsConnected())
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Recording existing connection"));
+            ConveyorConnections.Emplace(Connection->GetConnection());
+        }
+    }
+
+#if 0
 
 #if AUTO_SPLITTERS_DEBUG
 
@@ -1019,6 +1049,9 @@ for (auto Partner : UnclearPartners)
     ClearPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
     ++Module->mUpgradedSplitters;
     mNeedsInitialDistributionSetup = true;
+
+#endif
+
 }
 
 void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
@@ -1144,6 +1177,11 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuil
                         Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::Connected);
                         Node.ConnectionStateChanged = true;
                     }
+                    if (IsSet(Splitter.mOutputStates[i], EOutputState::AutoSplitter))
+                    {
+                        Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::AutoSplitter);
+                        Node.ConnectionStateChanged = true;
+                    }
                     continue;
                 }
 
@@ -1153,9 +1191,13 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuil
                     Node.ConnectionStateChanged = true;
                 }
 
-                Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i],EOutputState::AutoSplitter,Node.Outputs[i] != nullptr);
                 if (Node.Outputs[i])
                 {
+                    if (!IsSet(Splitter.mOutputStates[i], EOutputState::AutoSplitter))
+                    {
+                        Splitter.mOutputStates[i] = SetFlag(Splitter.mOutputStates[i],EOutputState::AutoSplitter);
+                        Node.ConnectionStateChanged = true;
+                    }
                     auto& OutputNode = *Node.Outputs[i];
                     auto& OutputSplitter = *OutputNode.Splitter;
                     if (OutputSplitter.IsPersistentFlagSet(MANUAL_INPUT_RATE))
@@ -1172,6 +1214,11 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuil
                 }
                 else
                 {
+                    if (IsSet(Splitter.mOutputStates[i], EOutputState::AutoSplitter))
+                    {
+                        Splitter.mOutputStates[i] = ClearFlag(Splitter.mOutputStates[i],EOutputState::AutoSplitter);
+                        Node.ConnectionStateChanged = true;
+                    }
                     if (IsSet(Splitter.mOutputStates[i],EOutputState::Automatic))
                     {
                         Node.Shares += Node.PotentialShares[i];
