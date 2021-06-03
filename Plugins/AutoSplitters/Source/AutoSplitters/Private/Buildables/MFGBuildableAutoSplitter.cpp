@@ -794,7 +794,6 @@ void AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout()
     ClearTransientFlag(IS_REPLICATION_ENABLED);
 }
 
-constexpr std::array<int32,4> GPartner_Map = {0,1,3,5};
 
 void AMFGBuildableAutoSplitter::FixupConnections()
 {
@@ -806,27 +805,6 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
     UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"));
 
-    auto& [This,OldBluePrintConnections,ConveyorConnections] = Module->mPreUpgradeSplitters.Add_GetRef({this,{},{}});
-
-    for (auto Connection : Connections)
-    {
-
-        if (Connection->GetName() == TEXT("Output0") || Connection->GetName() == TEXT("Input0"))
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*Connection->GetName());
-            RemoveOwnedComponent(Connection);
-            OldBluePrintConnections.Emplace(Connection);
-        }
-
-        if (Connection->IsConnected())
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Recording existing connection"));
-            ConveyorConnections.Emplace(Connection->GetConnection());
-        }
-    }
-
-#if 0
-
 #if AUTO_SPLITTERS_DEBUG
 
     UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: connections=%d outputrates_deprecated=%d outputstates=(%d %d %d)"),
@@ -835,8 +813,6 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         mOutputRates_DEPRECATED.Num(),
         mOutputStates[0],mOutputStates[1],mOutputStates[2]
         );
-
-#endif
 
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Partners;
     int32 PartnerCount = 0;
@@ -847,8 +823,6 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         UFGFactoryConnectionComponent* Partner = c->IsConnected() ? c->GetConnection() : nullptr;
         Partners.Add(Partner);
         PartnerCount += Partner != nullptr;
-
-#if AUTO_SPLITTERS_DEBUG
 
         auto Pos = this->GetTransform().InverseTransformPosition(c->GetComponentLocation());
         auto Rot = this->GetTransform().InverseTransformRotation(c->GetComponentRotation().Quaternion());
@@ -905,152 +879,30 @@ void AMFGBuildableAutoSplitter::FixupConnections()
         }
 
         ++ii;
+    }
 
 #endif
 
-        if (Partner)
-        {
-            Module->mBrokenConnectionPairs.Add({c,Partner});
-        }
+    auto& [This,OldBluePrintConnections,ConveyorConnections] = Module->mPreUpgradeSplitters.Add_GetRef({this,{},{}});
 
-        if (c->GetName() == TEXT("Output0") || c->GetName() == TEXT("Input0"))
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*c->GetName());
-            //c->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
-            RemoveOwnedComponent(c);
-            Module->mOldBlueprintConnections.Add(c);
-            c = nullptr;
-        }
-    }
-
-    auto Candidates = make_array<4,UFGFactoryConnectionComponent*>(nullptr);
-    int32 Assigned = 0;
-    const bool RemoveAllConveyors = FAutoSplitters_ConfigStruct::GetActiveConfig().Upgrade.RemoveAllConveyors;
-    TInlineComponentArray<UFGFactoryConnectionComponent*,4> UnclearPartners;
-
-    int32 idebug = 0;
-    for (auto Partner : Partners)
+    for (auto Connection : Connections)
     {
-        if (!Partner)
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %d does not exist, skipping"),this,idebug);
-            ++idebug;
-            continue;
-        }
-        auto PartnerPos = Partner->GetComponentLocation();
-        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Partner %p (%d) position=%s"),this,Partner,idebug,*PartnerPos.ToString());
-        float Distance = INFINITY;
-        int32 MatchingConnection = -1;
-        bool LoopError = false;
-        for (int32 i = 0 ; i < 4 ; ++i)
-        {
-            auto ConnectionPos = Connections[i]->GetComponentLocation();
-            float ConnectionDistance = FVector::Dist(ConnectionPos,PartnerPos);
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Connection %d Partner %p ConnectionPos=%s Distance = %f"),this,i,Partner,*ConnectionPos.ToString(),ConnectionDistance);
-            if (std::abs(Distance - ConnectionDistance) < UPGRADE_POSITION_REQUIRED_DELTA)
-            {
-                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - %d and %d: distance delta too small (%f)"), this, Partner, MatchingConnection, i, Distance - ConnectionDistance );
-                LoopError = true;
-                continue;
-            }
 
-            if (ConnectionDistance < Distance)
-            {
-                UE_LOG( LogAutoSplitters, Display, TEXT("Splitter %p: Partner %p - picking connection %d"), this, Partner, i );
-                Distance = ConnectionDistance;
-                MatchingConnection = i;
-                LoopError = false;
-            }
+        if (Connection->GetName() == TEXT("Output0") || Connection->GetName() == TEXT("Input0"))
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Detaching component %s and scheduling for destruction"),*Connection->GetName());
+            RemoveOwnedComponent(Connection);
+            OldBluePrintConnections.Emplace(Connection);
         }
 
-        if (LoopError)
+        if (Connection->IsConnected())
         {
-            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best candidates are too close, marking connection for dismantling"), this, Partner);
-            UnclearPartners.Add(Partner);
-        }
-
-        if (Candidates[MatchingConnection])
-        {
-            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p: Partner %p - best connection %d has already been picked for %p"), this, Partner, MatchingConnection, Candidates[MatchingConnection]);
-            UnclearPartners.Add(Partner);
-        }
-        else
-        {
-            Candidates[MatchingConnection] = Partner;
-            ++Assigned;
-        }
-        ++idebug;
-    }
-
-    if (!RemoveAllConveyors)
-    {
-        if (Assigned < PartnerCount)
-        {
-            UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Failed to assign all connections (%d < %d)"), this, Assigned, PartnerCount);
-        }
-        for (int32 i = 0 ; i < 4 ; ++i)
-        {
-            if (!Candidates[i])
-                continue;
-
-            if (Connections[i]->GetDirection() == Candidates[i]->GetDirection())
-            {
-                UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - inconsistent connection directions for output %d (%s), marking conveyor for dismantling"), this, i, *Connections[i]->GetName());
-                UnclearPartners.Add(Candidates[i]);
-                Candidates[i] = nullptr;
-            }
-        }
-    }
-for (auto Partner : UnclearPartners)
-    {
-        UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
-        auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
-        if (!Conveyor)
-        {
-            UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
-        }
-        else
-        {
-            Module->mBrokenConveyors.Add(Conveyor);
-        }
-    }
-
-    if (!RemoveAllConveyors)
-    {
-        for (int32 i = 0; i < 4; ++i)
-        {
-            if (Candidates[i] && !UnclearPartners.Contains(Candidates[i]))
-            {
-                Module->mPendingConnectionPairs.Add({Connections[i],Candidates[i]});
-            }
-        }
-    }
-    else
-    {
-        UE_LOG( LogAutoSplitters, Error, TEXT("Splitter %p - Mod is configured to wipe all conveyors"), this);
-        for (auto Partner: Partners)
-        {
-            if (Partner)
-            {
-                UE_LOG(LogAutoSplitters,Warning,TEXT("Splitter %p: Scheduling attached conveyor of partner %p for dismantling after BeginPlay() completes"),this,Partner);
-                auto Conveyor = Cast<AFGBuildableConveyorBase>(Partner->GetOuterBuildable());
-                if (!Conveyor)
-                {
-                    UE_LOG(LogAutoSplitters,Error,TEXT("Splitter %p: Partner %p - Encountered a connection that is not hooked up to a conveyor, but to %s"),this,Partner,*Partner->GetOuterBuildable()->GetClass()->GetName())
-                }
-                else
-                {
-                    Module->mBrokenConveyors.Add(Conveyor);
-                }
-            }
+            UE_LOG(LogAutoSplitters,Display,TEXT("Recording existing connection"));
+            ConveyorConnections.Emplace(Connection->GetConnection());
         }
     }
 
     ClearPersistentFlag(NEEDS_CONNECTIONS_FIXUP);
-    ++Module->mUpgradedSplitters;
-    mNeedsInitialDistributionSetup = true;
-
-#endif
 
 }
 
