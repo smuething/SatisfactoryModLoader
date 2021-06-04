@@ -66,6 +66,7 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     friend class FAutoSplittersModule;
     friend class AMFGAutoSplitterHologram;
     friend class UAutoSplittersRCO;
+    friend class AMFGReplicationDetailActor_BuildableAutoSplitter;
 
     static constexpr uint32 MANUAL_INPUT_RATE         = 1 <<  8;
     static constexpr uint32 NEEDS_CONNECTIONS_FIXUP   = 1 <<  9;
@@ -98,6 +99,8 @@ public:
 
     virtual void BeginPlay() override;
     virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
+
+    virtual UClass* GetReplicationDetailActorClass() const override;
 
 protected:
 
@@ -135,25 +138,25 @@ private:
 
 protected:
 
-    UPROPERTY(Transient, Replicated)
+    UPROPERTY(Transient)
     uint32 mTransientState;
 
     UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
     TArray<float> mOutputRates_DEPRECATED;
 
-    UPROPERTY(SaveGame, Replicated, BlueprintReadOnly, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mOutputStates;
 
     UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
     TArray<int32> mRemainingItems;
 
-    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
     uint32 mPersistentState;
 
-    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
     int32 mTargetInputRate;
 
-    UPROPERTY(SaveGame, Replicated, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
     TArray<int32> mIntegralOutputRates;
 
     UPROPERTY(Transient, BlueprintReadOnly)
@@ -162,19 +165,19 @@ protected:
     UPROPERTY(Transient, BlueprintReadOnly)
     TArray<int32> mItemsPerCycle;
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    UPROPERTY(Transient, BlueprintReadOnly)
     int32 mLeftInCycle;
 
     UPROPERTY(Transient, BlueprintReadWrite)
     bool mDebug;
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    UPROPERTY(Transient, BlueprintReadOnly)
     int32 mCycleLength;
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    UPROPERTY(Transient, BlueprintReadOnly)
     int32 mCachedInventoryItemCount;
 
-    UPROPERTY(Transient, Replicated, BlueprintReadOnly)
+    UPROPERTY(Transient, BlueprintReadOnly)
     float mItemRate;
 
 private:

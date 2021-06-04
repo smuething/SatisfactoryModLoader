@@ -10,8 +10,7 @@
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 #include "AutoSplitters_ConfigStruct.h"
-#include "Chaos/AABB.h"
-#include "Chaos/AABB.h"
+#include "Replication/MFGReplicationDetailActor_BuildableAutoSplitter.h"
 
 #if AUTO_SPLITTERS_DEBUG
 #define DEBUG_THIS_SPLITTER mDebug
@@ -60,11 +59,14 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mNeedsInitialDistributionSetup(true)
     , mCycleTime(0.0f)
     , mReallyGrabbed(0)
-{}
+{
+    UE_LOG(LogAutoSplitters,Display,TEXT("Replication actor class: %s"),*AFGBuildableAttachmentSplitter::GetReplicationDetailActorClass()->GetName());
+}
 
 void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    /*
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mTransientState);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mOutputStates);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mPersistentState);
@@ -74,11 +76,13 @@ void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimePrope
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mCycleLength);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mCachedInventoryItemCount);
     DOREPLIFETIME(AMFGBuildableAutoSplitter,mItemRate);
+    */
 }
 
 void AMFGBuildableAutoSplitter::PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker)
 {
     Super::PreReplication(ChangedPropertyTracker);
+    /*
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mOutputStates,IsTransientFlagSet(IS_REPLICATION_ENABLED));
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mPersistentState,IsTransientFlagSet(IS_REPLICATION_ENABLED));
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mTargetInputRate,IsTransientFlagSet(IS_REPLICATION_ENABLED));
@@ -87,6 +91,7 @@ void AMFGBuildableAutoSplitter::PreReplication(IRepChangedPropertyTracker& Chang
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCycleLength,IsTransientFlagSet(IS_REPLICATION_ENABLED));
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mCachedInventoryItemCount,IsTransientFlagSet(IS_REPLICATION_ENABLED));
     DOREPLIFETIME_ACTIVE_OVERRIDE(AMFGBuildableAutoSplitter,mItemRate,IsTransientFlagSet(IS_REPLICATION_ENABLED));
+    */
 }
 
 void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
@@ -358,6 +363,12 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
         SetupDistribution(true);
         mNeedsInitialDistributionSetup = false;
     }
+}
+
+UClass* AMFGBuildableAutoSplitter::GetReplicationDetailActorClass() const
+{
+    return Super::GetReplicationDetailActorClass();
+    // return AMFGReplicationDetailActor_BuildableAutoSplitter::StaticClass();
 }
 
 void AMFGBuildableAutoSplitter::BeginPlay()
