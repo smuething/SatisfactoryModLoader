@@ -11,6 +11,7 @@
 
 #include "AutoSplittersModule.h"
 #include "AutoSplittersRCO.h"
+#include "AutoSplittersLog.h"
 #include "util/BitField.h"
 
 #include "MFGBuildableAutoSplitter.generated.h"
@@ -166,6 +167,19 @@ protected:
 
     void Server_ReplicationEnabledTimeout();
 
+    UFUNCTION()
+    void OnRep_Replicated()
+    {
+        if (HasAuthority())
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("OnRep_TransientState() called with authority"));
+        }
+        else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("OnRep_TransientState() called without authority"));
+        }
+    }
+
 private:
 
     void SetupDistribution(bool LoadingSave = false);
@@ -178,7 +192,7 @@ private:
 
 protected:
 
-    UPROPERTY(SaveGame,Replicated, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame,ReplicatedUsing=OnRep_Replicated, Meta = (NoAutoJson))
     FMFGBuildableAutoSplitterReplicatedProperties mReplicated;
 
     UPROPERTY(Transient)
@@ -254,7 +268,10 @@ public:
         if (HasAuthority())
             Server_EnableReplication(Duration);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::EnableReplication() to RCO"));
             RCO()->EnableReplication(this,Duration);
+        }
     }
 
     UFUNCTION(BlueprintCallable,BlueprintPure)
@@ -269,7 +286,10 @@ public:
         if (HasAuthority())
             Server_SetTargetRateAutomatic(Automatic);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::SetTargetRateAutomatic() to RCO"));
             RCO()->SetTargetRateAutomatic(this,Automatic);
+        }
     }
 
 
@@ -282,7 +302,10 @@ public:
         if (HasAuthority())
             Server_SetTargetInputRate(Rate);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::SetTargetInputRate() to RCO"));
             RCO()->SetTargetInputRate(this,Rate);
+        }
     }
 
     UFUNCTION(BlueprintPure)
@@ -294,7 +317,10 @@ public:
         if (HasAuthority())
             Server_SetOutputRate(Output,Rate);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::SetOutputRate() to RCO"));
             RCO()->SetOutputRate(this,Output,Rate);
+        }
     }
 
     UFUNCTION(BlueprintCallable)
@@ -303,7 +329,10 @@ public:
         if (HasAuthority())
             Server_SetOutputAutomatic(Output,Automatic);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::OutputAutomatic() to RCO"));
             RCO()->SetOutputAutomatic(this,Output,Automatic);
+        }
     }
 
     UFUNCTION(BlueprintCallable)
@@ -312,7 +341,10 @@ public:
         if (HasAuthority())
             Server_BalanceNetwork(this,RootOnly);
         else
+        {
+            UE_LOG(LogAutoSplitters,Display,TEXT("Forwarding AMFGBuildableAutoSplitter::BalanceNetwork() to RCO"));
             RCO()->BalanceNetwork(this,RootOnly);
+        }
     }
 
     uint32 GetSplitterVersion() const
@@ -342,8 +374,8 @@ public:
 #endif
     }
 
-    UFUNCTION(BluePrintPure)
-    bool HasCurrentData() const
+    UFUNCTION(BluePrintCallable)
+    bool HasCurrentData() // do not mark this const, as it will turn the function pure in the blueprint
     {
         return HasAuthority() || IsReplicationEnabled();
     }
