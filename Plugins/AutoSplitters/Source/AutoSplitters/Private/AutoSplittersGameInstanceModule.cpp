@@ -1,13 +1,13 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
-#include "AutoSplittersInitGameInstance.h"
+#include "AutoSplittersGameInstanceModule.h"
 
 #include "Registry/RemoteCallObjectRegistry.h"
 #include "AutoSplittersLog.h"
 #include "AutoSplittersRCO.h"
 
-void UAutoSplittersInitGameInstance::DispatchLifecycleEvent(ELifecyclePhase Phase)
+void UAutoSplittersGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 {
     UE_LOG(LogAutoSplitters,Display,TEXT("In UAutoSplittersInitGameInstance::DispatchLifecycleEvent()"));
     Super::DispatchLifecycleEvent(Phase);

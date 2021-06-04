@@ -6,13 +6,13 @@
 
 #include "Module/GameInstanceModule.h"
 
-#include "AutoSplittersInitGameInstance.generated.h"
+#include "AutoSplittersGameInstanceModule.generated.h"
 
 /**
  *
  */
 UCLASS(BlueprintType)
-class AUTOSPLITTERS_API UAutoSplittersInitGameInstance : public UGameInstanceModule
+class AUTOSPLITTERS_API UAutoSplittersGameInstanceModule : public UGameInstanceModule
 {
     GENERATED_BODY()
 

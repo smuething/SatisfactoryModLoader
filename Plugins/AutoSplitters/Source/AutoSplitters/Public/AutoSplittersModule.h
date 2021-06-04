@@ -21,4 +21,6 @@ class FAutoSplittersModule : public IModuleInterface
 
 public:
 	virtual void StartupModule() override;
+
+	static const FName ModReference;
 };

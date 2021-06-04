@@ -193,7 +193,6 @@ void FAutoSplittersModule::StartupModule()
 			                                                       FText::FromString(Str), CloseDelegate);
 		}
 
-
 		mPreUpgradeSplitters.Empty();
 	};
 
@@ -205,6 +204,8 @@ void FAutoSplittersModule::StartupModule()
 #endif // UE_BUILD_SHIPPING
 
 }
+
+const FName FAutoSplittersModule::ModReference("AutoSplitters");
 
 // #pragma optimize( "", on )
 
