@@ -68,6 +68,8 @@ class AUTOSPLITTERS_API AMFGBuildableAutoSplitter : public AFGBuildableAttachmen
     friend class UAutoSplittersRCO;
     friend class AMFGReplicationDetailActor_BuildableAutoSplitter;
 
+public:
+
     static constexpr uint32 MANUAL_INPUT_RATE         = 1 <<  8;
     static constexpr uint32 NEEDS_CONNECTIONS_FIXUP   = 1 <<  9;
     static constexpr uint32 NEEDS_DISTRIBUTION_SETUP  = 1 << 10;
