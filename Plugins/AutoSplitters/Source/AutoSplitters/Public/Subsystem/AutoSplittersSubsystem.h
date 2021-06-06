@@ -7,32 +7,56 @@
 #include "Buildables/MFGBuildableAutoSplitter.h"
 #include "AutoSplitters_ConfigStruct.h"
 #include "Subsystem/SubsystemActorManager.h"
-#include "AutoSplittersLog.h"
+#include "Util/SemVersion.h"
+#include "AutoSplittersSerializationVersion.h"
 
 #include "AutoSplittersSubsystem.generated.h"
 
 /**
  *
  */
-UCLASS()
-class AUTOSPLITTERS_API AAutoSplittersSubsystem : public AModSubsystem
+UCLASS(BlueprintType,NotBlueprintable)
+class AUTOSPLITTERS_API AAutoSplittersSubsystem : public AModSubsystem, public IFGSaveInterface
 {
     GENERATED_BODY()
 
     friend class FAutoSplittersModule;
 
-    static AAutoSplittersSubsystem* mCachedSubsystem;
+    static AAutoSplittersSubsystem* sCachedSubsystem;
+    static bool sHaveLoadedAutoSplitter;
 
 public:
 
-    UPROPERTY(SaveGame,BlueprintReadOnly)
-    uint8 mMaxSplitterVersion = AMFGBuildableAutoSplitter::VERSION;
+    static const FVersion New_Session;
+    static const FVersion ModVersion_Legacy;
+
+protected:
 
     UPROPERTY(SaveGame,BlueprintReadOnly)
-    uint8 mMinSplitterVersion = 0;
+    TEnumAsByte<EAutoSplittersSerializationVersion> mSerializationVersion;
+
+    // FVersion cannot be serialized, so we store the data into three separate properties in the save file
+    UPROPERTY(Transient,BlueprintReadOnly)
+    FVersion mLoadedModVersion;
+
+    UPROPERTY(Transient,BlueprintReadOnly)
+    FVersion mRunningModVersion;
 
     UPROPERTY(Transient,BlueprintReadOnly)
     FAutoSplitters_ConfigStruct mConfig;
+
+private:
+
+    UPROPERTY(SaveGame)
+    int64 mVersionMajor;
+
+    UPROPERTY(SaveGame)
+    int64 mVersionMinor;
+
+    UPROPERTY(SaveGame)
+    int64 mVersionPatch;
+
+    static AAutoSplittersSubsystem* FindAndGet(UObject* WorldContext,bool FailIfMissing);
 
 protected:
 
@@ -43,17 +67,57 @@ public:
 
     AAutoSplittersSubsystem();
 
-    static AAutoSplittersSubsystem* Get(UObject* WorldContext)
+    static AAutoSplittersSubsystem* Get(UObject* WorldContext,bool FailIfMissing = true)
     {
-        if (mCachedSubsystem)
-            return mCachedSubsystem;
-        const auto World = WorldContext->GetWorld();
-        auto SubsystemActorManager = World->GetSubsystem<USubsystemActorManager>();
-        mCachedSubsystem = SubsystemActorManager->GetSubsystemActor<AAutoSplittersSubsystem>();
-        check(mCachedSubsystem);
-        return mCachedSubsystem;
+        if (sCachedSubsystem)
+            return sCachedSubsystem;
+        return FindAndGet(WorldContext,FailIfMissing);
+    }
+
+    FVersion GetLoadedModVersion() const
+    {
+        return mLoadedModVersion;
+    }
+
+    FVersion GetRunningModVersion() const
+    {
+        return mRunningModVersion;
+    }
+
+    EAutoSplittersSerializationVersion GetSerializationVersion() const
+    {
+        return mSerializationVersion.GetValue();
+    }
+
+    const FAutoSplitters_ConfigStruct& GetConfig() const
+    {
+
+        return mConfig;
+    }
+
+    bool IsModOlderThanSaveGame() const
+    {
+        return GetLoadedModVersion().Compare(New_Session) != 0 && GetLoadedModVersion().Compare(GetRunningModVersion()) > 0;
+    }
+
+    bool IsNewSession() const
+    {
+        return GetLoadedModVersion().Compare(New_Session) == 0 && !sHaveLoadedAutoSplitter;
+    }
+
+    static void RegisterLoadedAutoSplitter(AMFGBuildableAutoSplitter* Splitter)
+    {
+        sHaveLoadedAutoSplitter = true;
     }
 
     void ReloadConfig();
+
+    virtual void PreSaveGame_Implementation(int32 saveVersion, int32 gameVersion) override;
+    //virtual void PostSaveGame_Implementation(int32 saveVersion, int32 gameVersion) override;
+    //virtual void PreLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
+    virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
+    //virtual void GatherDependencies_Implementation( TArray< UObject* >& out_dependentObjects) override;
+    virtual bool NeedTransform_Implementation() override;
+    virtual bool ShouldSave_Implementation() const override;
 
 };
