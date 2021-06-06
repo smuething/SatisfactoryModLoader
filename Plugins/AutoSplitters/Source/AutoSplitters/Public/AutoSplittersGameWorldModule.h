@@ -16,10 +16,4 @@ class AUTOSPLITTERS_API UAutoSplittersGameWorldModule : public UGameWorldModule
 {
     GENERATED_BODY()
 
-public:
-
-    UPROPERTY(Transient,BlueprintReadOnly)
-    FAutoSplitters_ConfigStruct Config;
-
-    virtual void DispatchLifecycleEvent(ELifecyclePhase Phase) override;
 };

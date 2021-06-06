@@ -9,7 +9,7 @@
 #include "AutoSplittersModule.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableConveyorBase.h"
-#include "AutoSplitters_ConfigStruct.h"
+#include "Subsystem/AutoSplittersSubsystem.h"
 #include "Replication/MFGReplicationDetailActor_BuildableAutoSplitter.h"
 
 #if AUTO_SPLITTERS_DEBUG
@@ -1053,7 +1053,7 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuil
         return {false,-1};
     }
 
-    const auto Config = FAutoSplitters_ConfigStruct::GetActiveConfig();
+    const auto& Config = AAutoSplittersSubsystem::Get(ForSplitter)->GetConfig();
 
     // Now walk the tree to discover the whole network
     TArray<TArray<FNetworkNode>> Network;
