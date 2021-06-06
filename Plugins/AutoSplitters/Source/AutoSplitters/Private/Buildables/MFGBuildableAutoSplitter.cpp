@@ -4,7 +4,6 @@
 
 #include <numeric>
 
-#include <Modules/ModuleManager.h>
 #include "AutoSplittersLog.h"
 #include "AutoSplittersModule.h"
 #include "FGFactoryConnectionComponent.h"
@@ -59,9 +58,7 @@ AMFGBuildableAutoSplitter::AMFGBuildableAutoSplitter()
     , mNeedsInitialDistributionSetup(true)
     , mCycleTime(0.0f)
     , mReallyGrabbed(0)
-{
-    UE_LOG(LogAutoSplitters,Display,TEXT("Replication actor class: %s"),*AFGBuildableAttachmentSplitter::GetReplicationDetailActorClass()->GetName());
-}
+{}
 
 void AMFGBuildableAutoSplitter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -856,7 +853,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
     TInlineComponentArray<UFGFactoryConnectionComponent*, 6> Connections;
     GetComponents(Connections);
 
-    UE_LOG(LogAutoSplitters, Display, TEXT("Fixing up Auto Splitter connections for 0.3.0 upgrade"));
+    UE_LOG(LogAutoSplitters, Display, TEXT("%s: Clearing out connection components for pre 0.3.0 splitter to avoid crashing"),*GetName());
 
 #if AUTO_SPLITTERS_DEBUG
 
