@@ -144,10 +144,6 @@ void AMFGBuildableAutoSplitter::Factory_Tick(float dt)
     if (mTargetInputRate == 0 && mInputs[0]->IsConnected())
     {
         auto [_,Rate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0],false);
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Ready)
-            return;
-#endif
         mTargetInputRate = Rate;
     }
 
@@ -959,28 +955,10 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 void AMFGBuildableAutoSplitter::SetupInitialDistributionState()
 {
     auto [InputSplitter,MaxInputRate,Ready] = FindAutoSplitterAndMaxBeltRate(mInputs[0], false);
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-    if (!Ready)
-    {
-#if AUTO_SPLITTERS_DEBUG
-        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),this);
-#endif
-        return;
-    }
-#endif
     mTargetInputRate = MaxInputRate;
     for (int32 i = 0; i < NUM_OUTPUTS; ++i)
     {
         auto [OutputSplitter,MaxRate,Ready2] = FindAutoSplitterAndMaxBeltRate(mOutputs[i], true);
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Ready2)
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),this);
-#endif
-            return;
-        }
-#endif
         if (MaxRate > 0)
         {
             mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
@@ -1024,15 +1002,6 @@ std::tuple<bool,int32> AMFGBuildableAutoSplitter::Server_BalanceNetwork(AMFGBuil
         std::tie(Current,Rate,Ready) = FindAutoSplitterAndMaxBeltRate(Current->mInputs[0],false)
         )
     {
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Ready)
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Current);
-#endif
-            return {false,-1};
-        }
-#endif
         if (Current->IsSplitterFlagSet(EPersistent::NeedsConnectionsFixup) || !Current->HasActorBegunPlay())
             return {false,-1};
         if (SplitterSet.Contains(Current))
@@ -1373,19 +1342,6 @@ std::tuple<AMFGBuildableAutoSplitter*, int32, bool> AMFGBuildableAutoSplitter::F
     while (Connection->IsConnected())
     {
         Connection = Connection->GetConnection();
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Connection->GetOuterBuildable()->HasActorBegunPlay())
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Encountered not-ready actor %p of type %s"),
-                Connection->GetOuterBuildable(),
-                *Connection->GetOuterBuildable()->StaticClass()->GetName()
-                );
-#endif
-
-            return {0,0,false};
-        }
-#endif
         const auto Belt = Cast<AFGBuildableConveyorBase>(Connection->GetOuterBuildable());
         if (Belt)
         {
@@ -1405,19 +1361,6 @@ std::tuple<AFGBuildableFactory*, int32, bool> AMFGBuildableAutoSplitter::FindFac
     while (Connection->IsConnected())
     {
         Connection = Connection->GetConnection();
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Connection->GetOuterBuildable()->HasActorBegunPlay())
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Encountered not-ready actor %p of type %s"),
-                Connection->GetOuterBuildable(),
-                *Connection->GetOuterBuildable()->StaticClass()->GetName()
-                );
-#endif
-
-            return {0,0,false};
-        }
-#endif
         const auto Belt = Cast<AFGBuildableConveyorBase>(Connection->GetOuterBuildable());
         if (Belt)
         {
