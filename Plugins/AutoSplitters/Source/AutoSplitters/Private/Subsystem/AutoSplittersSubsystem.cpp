@@ -92,6 +92,36 @@ void AAutoSplittersSubsystem::ReloadConfig()
     mConfig = FAutoSplitters_ConfigStruct::GetActiveConfig();
 }
 
+void AAutoSplittersSubsystem::NotifyChat(ESeverity Severity, FString Msg) const
+{
+    auto ChatManager = AFGChatManager::Get(GetWorld());
+
+    FChatMessageStruct Message;
+    Message.MessageString = Msg;
+    Message.MessageType = EFGChatMessageType::CMT_SystemMessage;
+    Message.ServerTimeStamp = GetWorld()->TimeSeconds;
+
+    switch (Severity)
+    {
+    case ESeverity::Debug:
+    case ESeverity::Info:
+        Message.CachedColor = FLinearColor(0.92, 0.92, 0.92);
+        break;
+    case ESeverity::Notice:
+        Message.CachedColor = FLinearColor(0.0, 0.667, 0);
+        break;
+    case ESeverity::Warning:
+        Message.CachedColor = FLinearColor(0.949, 0.667, 0);
+        break;
+    case ESeverity::Error:
+        Message.CachedColor = FLinearColor(0.9, 0, 0);
+        break;
+    }
+
+    ChatManager->AddChatMessageToReceived(Message);
+
+}
+
 void AAutoSplittersSubsystem::PreSaveGame_Implementation(int32 saveVersion, int32 gameVersion)
 {
     mLoadedModVersion = mRunningModVersion;

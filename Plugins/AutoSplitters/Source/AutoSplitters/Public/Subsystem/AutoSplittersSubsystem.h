@@ -12,6 +12,16 @@
 
 #include "AutoSplittersSubsystem.generated.h"
 
+
+enum class EAAutoSplittersSubsystemSeverity : uint8
+{
+    Debug = 1,
+    Info  = 2,
+    Notice = 3,
+    Warning = 4,
+    Error = 5,
+};
+
 /**
  *
  */
@@ -26,6 +36,8 @@ class AUTOSPLITTERS_API AAutoSplittersSubsystem : public AModSubsystem, public I
     static bool sHaveLoadedAutoSplitter;
 
 public:
+
+    using ESeverity = EAAutoSplittersSubsystemSeverity;
 
     static const FVersion New_Session;
     static const FVersion ModVersion_Legacy;
@@ -111,6 +123,8 @@ public:
     }
 
     void ReloadConfig();
+
+    void NotifyChat(ESeverity Severity,FString Msg) const;
 
     virtual void PreSaveGame_Implementation(int32 saveVersion, int32 gameVersion) override;
     //virtual void PostSaveGame_Implementation(int32 saveVersion, int32 gameVersion) override;
