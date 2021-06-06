@@ -330,13 +330,23 @@ void AMFGBuildableAutoSplitter::BeginPlay()
             switch (AutoSplittersSubsystem->GetSerializationVersion())
             {
             case EAutoSplittersSerializationVersion::Legacy:
-                {
-                    break;
-                }
+                // can't ever get here
             case EAutoSplittersSerializationVersion::FixedPrecisionArithmetic:
                 {
-                    break;
+#if UE_BUILD_SHIPPING
+                    // Microsoft's overzealous debug checks dont let us use std::copy() with a naked C array in debug
+                    // mode, so just turn it off
+                    UE_LOG(LogAutoSplitters,Display,TEXT("%s: Upgrading to NestedReplicationStruct"),*GetName());
+                    std::copy(mOutputStates_DEPRECATED.begin(),mOutputStates_DEPRECATED.end(),mReplicated.OutputStates);
+                    mOutputStates_DEPRECATED.Empty();
+                    mReplicated.PersistentState = mPersistentState_DEPRECATED;
+                    mReplicated.TargetInputRate = mTargetInputRate_DEPRECATED;
+                    std::copy(mIntegralOutputRates_DEPRECATED.begin(),mIntegralOutputRates_DEPRECATED.end(),mReplicated.IntegralOutputRates);
+                    mIntegralOutputRates_DEPRECATED.Empty();
+#endif
                 }
+            case EAutoSplittersSerializationVersion::NestedReplicationStruct:
+                break;
             default:
                 {
                     UE_LOG(LogAutoSplitters,Error,TEXT("AutoSplitter %s was saved with an unsupported serialization version, will be removed"),*GetName());
