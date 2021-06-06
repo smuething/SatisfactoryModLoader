@@ -10,7 +10,7 @@
 
 #include "AutoSplittersModule.h"
 #include "AutoSplittersRCO.h"
-#include "FGPlayerController.h"
+#include "util/BitField.h"
 
 #include "MFGBuildableAutoSplitter.generated.h"
 
@@ -22,38 +22,8 @@ enum class EOutputState : uint8
     AutoSplitter UMETA(DisplayName = "AutoSplitter"),
 };
 
-constexpr int32 Flag(EOutputState flag)
-{
-    return 1 << static_cast<int32>(flag);
-}
-
-constexpr bool IsSet(int32 BitField, EOutputState flag)
-{
-    return BitField & Flag(flag);
-}
-
-constexpr int32 SetFlag(int32 BitField, EOutputState flag)
-{
-    return BitField | Flag(flag);
-}
-
-constexpr int32 ClearFlag(int32 BitField, EOutputState flag)
-{
-    return BitField & ~Flag(flag);
-}
-
-constexpr int32 SetFlag(int32 BitField, EOutputState flag, bool Enabled)
-{
-    return (BitField & ~Flag(flag)) | (Enabled * Flag(flag));
-}
-
-constexpr static int32 Pow_Constexpr(int32 Base, int32 Exponent)
-{
-    int32 Result = 1;
-    while (Exponent-- > 0)
-        Result *= Base;
-    return Result;
-}
+template <>
+struct is_enum_bitfield<EOutputState> : std::true_type {};
 
 /**
  *
