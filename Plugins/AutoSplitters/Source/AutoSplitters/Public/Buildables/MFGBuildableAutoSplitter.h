@@ -334,6 +334,33 @@ public:
         }
     }
 
+    UFUNCTION(BlueprintPure)
+    bool IsOutputAutomatic(int32 Output) const
+    {
+        if (Output < 0 || Output > NUM_OUTPUTS)
+            return false;
+
+        return IsSet(mReplicated.OutputStates[Output],EOutputState::Automatic);
+    }
+
+    UFUNCTION(BlueprintPure)
+    bool IsOutputAutoSplitter(int32 Output) const
+    {
+        if (Output < 0 || Output > NUM_OUTPUTS)
+            return false;
+
+        return IsSet(mReplicated.OutputStates[Output],EOutputState::AutoSplitter);
+    }
+
+    UFUNCTION(BlueprintPure)
+    bool IsOutputConnected(int32 Output) const
+    {
+        if (Output < 0 || Output > NUM_OUTPUTS)
+            return false;
+
+        return IsSet(mReplicated.OutputStates[Output],EOutputState::Connected);
+    }
+
     UFUNCTION(BlueprintCallable)
     void BalanceNetwork(bool RootOnly = true)
     {
