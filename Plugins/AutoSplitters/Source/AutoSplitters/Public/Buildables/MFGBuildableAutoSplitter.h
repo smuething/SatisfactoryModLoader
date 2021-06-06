@@ -57,6 +57,46 @@ template<>
 struct is_enum_bitfield<EAutoSplitterTransientFlags> : std::true_type{};
 
 
+
+USTRUCT(BlueprintType)
+struct AUTOSPLITTERS_API FMFGBuildableAutoSplitterReplicatedProperties
+{
+    GENERATED_BODY()
+
+    static constexpr int32 NUM_OUTPUTS = 3;
+
+    UPROPERTY(Transient)
+    uint32 TransientState;
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    int32 OutputStates[NUM_OUTPUTS];
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    uint32 PersistentState;
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    int32 TargetInputRate;
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    int32 IntegralOutputRates[NUM_OUTPUTS];
+
+    UPROPERTY(Transient, BlueprintReadOnly)
+    int32 LeftInCycle;
+
+    UPROPERTY(Transient, BlueprintReadOnly)
+    int32 CycleLength;
+
+    UPROPERTY(Transient, BlueprintReadOnly)
+    int32 CachedInventoryItemCount;
+
+    UPROPERTY(Transient, BlueprintReadOnly)
+    float ItemRate;
+
+    FMFGBuildableAutoSplitterReplicatedProperties();
+
+};
+
+
 /**
  *
  */
@@ -97,7 +137,6 @@ public:
 
     AMFGBuildableAutoSplitter();
     virtual void GetLifetimeReplicatedProps( TArray< FLifetimeProperty >& OutLifetimeProps ) const override;
-    virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;;
 
     virtual void BeginPlay() override;
     virtual void PostLoadGame_Implementation(int32 saveVersion, int32 gameVersion) override;
@@ -139,47 +178,44 @@ private:
 
 protected:
 
+    UPROPERTY(SaveGame,Replicated, Meta = (NoAutoJson))
+    FMFGBuildableAutoSplitterReplicatedProperties mReplicated;
+
     UPROPERTY(Transient)
-    uint32 mTransientState;
+    uint32 mTransientState_DEPRECATED;
 
-    UPROPERTY(SaveGame, Meta = (DeprecatedProperty,NoAutoJson))
-    TArray<float> mOutputRates_DEPRECATED;
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    TArray<int32> mOutputStates_DEPRECATED;
 
-    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
-    TArray<int32> mOutputStates;
-
-    UPROPERTY(SaveGame, BlueprintReadOnly, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
     TArray<int32> mRemainingItems;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
-    uint32 mPersistentState;
+    uint32 mPersistentState_DEPRECATED;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
-    int32 mTargetInputRate;
+    int32 mTargetInputRate_DEPRECATED;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
-    TArray<int32> mIntegralOutputRates;
+    TArray<int32> mIntegralOutputRates_DEPRECATED;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
-    AMFGBuildableAutoSplitter* mRootSplitter;
-
-    UPROPERTY(Transient, BlueprintReadOnly)
+    UPROPERTY(Transient)
     TArray<int32> mItemsPerCycle;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
-    int32 mLeftInCycle;
+    UPROPERTY(Transient)
+    int32 mLeftInCycle_DEPRECATED;
 
     UPROPERTY(Transient, BlueprintReadWrite)
     bool mDebug;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
-    int32 mCycleLength;
+    UPROPERTY(Transient)
+    int32 mCycleLength_DEPRECATED;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
-    int32 mCachedInventoryItemCount;
+    UPROPERTY(Transient)
+    int32 mCachedInventoryItemCount_DEPRECATED;
 
-    UPROPERTY(Transient, BlueprintReadOnly)
-    float mItemRate;
+    UPROPERTY(Transient)
+    float mItemRate_DEPRECATED;
 
 private:
 
@@ -281,19 +317,19 @@ public:
 
     uint32 GetSplitterVersion() const
     {
-        return mPersistentState & 0xFFu;
+        return mReplicated.PersistentState & 0xFFu;
     }
 
     UFUNCTION(BlueprintPure)
     int32 GetInventorySize() const
     {
-        return mCachedInventoryItemCount;
+        return mReplicated.CachedInventoryItemCount;
     }
 
     UFUNCTION(BlueprintPure)
     float GetItemRate() const
     {
-        return mItemRate;
+        return mReplicated.ItemRate;
     }
 
     UFUNCTION(BluePrintPure)
@@ -315,7 +351,7 @@ public:
     UFUNCTION(BlueprintPure)
     int32 GetError() const
     {
-        return mTransientState & 0xFFu;
+        return mReplicated.TransientState & 0xFFu;
     }
 
     struct FNetworkNode
@@ -351,12 +387,12 @@ private:
 
     void SetError(uint8 Error)
     {
-        mTransientState = (mTransientState & ~0xFFu) | static_cast<uint32>(Error);
+        mReplicated.TransientState = (mReplicated.TransientState & ~0xFFu) | static_cast<uint32>(Error);
     }
 
     void ClearError()
     {
-        mTransientState &= ~0xFFu;;
+        mReplicated.TransientState &= ~0xFFu;;
     }
 
     void FixupConnections();
@@ -383,52 +419,52 @@ private:
 
     FORCEINLINE bool IsSplitterFlagSet(EPersistent Flag) const
     {
-        return IsSet(mPersistentState,Flag);
+        return IsSet(mReplicated.PersistentState,Flag);
     }
 
     FORCEINLINE void SetSplitterFlag(EPersistent Flag, bool Value)
     {
-        mPersistentState = SetFlag(mPersistentState,Flag,Value);
+        mReplicated.PersistentState = SetFlag(mReplicated.PersistentState,Flag,Value);
     }
 
     FORCEINLINE void SetSplitterFlag(EPersistent Flag)
     {
-        mPersistentState = SetFlag(mPersistentState,Flag);
+        mReplicated.PersistentState = SetFlag(mReplicated.PersistentState,Flag);
     }
 
     FORCEINLINE void ClearSplitterFlag(EPersistent Flag)
     {
-        mPersistentState = ClearFlag(mPersistentState,Flag);
+        mReplicated.PersistentState = ClearFlag(mReplicated.PersistentState,Flag);
     }
 
     FORCEINLINE void ToggleSplitterFlag(EPersistent Flag)
     {
-        mPersistentState = ToggleFlag(mPersistentState,Flag);
+        mReplicated.PersistentState = ToggleFlag(mReplicated.PersistentState,Flag);
     }
 
     FORCEINLINE bool IsSplitterFlagSet(ETransient Flag) const
     {
-        return IsSet(mTransientState,Flag);
+        return IsSet(mReplicated.TransientState,Flag);
     }
 
     FORCEINLINE void SetSplitterFlag(ETransient Flag, bool Value)
     {
-        mTransientState = SetFlag(mTransientState,Flag,Value);
+        mReplicated.TransientState = SetFlag(mReplicated.TransientState,Flag,Value);
     }
 
     FORCEINLINE void SetSplitterFlag(ETransient Flag)
     {
-        mTransientState = SetFlag(mTransientState,Flag);
+        mReplicated.TransientState = SetFlag(mReplicated.TransientState,Flag);
     }
 
     FORCEINLINE void ClearSplitterFlag(ETransient Flag)
     {
-        mTransientState = ClearFlag(mTransientState,Flag);
+        mReplicated.TransientState = ClearFlag(mReplicated.TransientState,Flag);
     }
 
     FORCEINLINE void ToggleSplitterFlag(ETransient Flag)
     {
-        mTransientState = ToggleFlag(mTransientState,Flag);
+        mReplicated.TransientState = ToggleFlag(mReplicated.TransientState,Flag);
     }
 
 };
