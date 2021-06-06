@@ -158,6 +158,5 @@ bool AAutoSplittersSubsystem::NeedTransform_Implementation()
 
 bool AAutoSplittersSubsystem::ShouldSave_Implementation() const
 {
-    UE_LOG(LogAutoSplitters,Display,TEXT("In ShouldSave_Implementation()"));
     return true;
 }
