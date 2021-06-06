@@ -98,6 +98,9 @@ struct AUTOSPLITTERS_API FMFGBuildableAutoSplitterReplicatedProperties
 };
 
 
+class AMFGBuildableAutoSplitter;
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAMFGBuildableAutoSplitterOnStateChanged,AMFGBuildableAutoSplitter*,AutoSplitter);
+
 /**
  *
  */
@@ -170,14 +173,7 @@ protected:
     UFUNCTION()
     void OnRep_Replicated()
     {
-        if (HasAuthority())
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("OnRep_TransientState() called with authority"));
-        }
-        else
-        {
-            UE_LOG(LogAutoSplitters,Display,TEXT("OnRep_TransientState() called without authority"));
-        }
+        OnStateChangedEvent.Broadcast(this);
     }
 
 private:
@@ -192,7 +188,7 @@ private:
 
 protected:
 
-    UPROPERTY(SaveGame,ReplicatedUsing=OnRep_Replicated, Meta = (NoAutoJson))
+    UPROPERTY(SaveGame,ReplicatedUsing=OnRep_Replicated, BlueprintReadOnly, Meta = (NoAutoJson))
     FMFGBuildableAutoSplitterReplicatedProperties mReplicated;
 
     UPROPERTY(Transient)
@@ -230,6 +226,9 @@ protected:
 
     UPROPERTY(Transient)
     float mItemRate_DEPRECATED;
+
+    UPROPERTY(BlueprintAssignable)
+    FAMFGBuildableAutoSplitterOnStateChanged OnStateChangedEvent;
 
 private:
 

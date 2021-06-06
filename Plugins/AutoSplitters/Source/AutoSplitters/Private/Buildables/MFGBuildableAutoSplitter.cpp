@@ -639,8 +639,18 @@ void AMFGBuildableAutoSplitter::Server_EnableReplication(float Duration)
     }
 
     UE_LOG(LogAutoSplitters,Display,TEXT("Enabling full data replication for Auto Splitter %p"),this);
+    UE_LOG(LogAutoSplitters,Display,TEXT("State: IsReplicated=%s detailActor=%p bReplicates=%s dormancy=%d NetFrequency=%f MinNetFrequency=%f"),
+        GetIsReplicated() ? TEXT("true") : TEXT("false"),
+        mReplicationDetailActor,
+        bReplicates ? TEXT("true") : TEXT("false"),
+        NetDormancy.GetValue(),
+        NetUpdateFrequency,
+        MinNetUpdateFrequency
+    );
 
     SetSplitterFlag(ETransient::IsReplicationEnabled);
+    SetNetDormancy(DORM_Awake);
+    ForceNetUpdate();
     GetWorldTimerManager().SetTimer(mReplicationTimer,this,&AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout,Duration,false);
 }
 
@@ -656,6 +666,7 @@ bool AMFGBuildableAutoSplitter::Server_SetTargetRateAutomatic(bool Automatic)
         SetSplitterFlag(EPersistent::ManualInputRate,Automatic);
         return false;
     }
+    OnStateChangedEvent.Broadcast(this);
     return true;
 }
 
@@ -680,6 +691,7 @@ bool AMFGBuildableAutoSplitter::Server_SetTargetInputRate(float Rate)
     if (Changed)
         Server_BalanceNetwork(this);
 
+    OnStateChangedEvent.Broadcast(this);
     return true;
 }
 
@@ -758,6 +770,7 @@ bool AMFGBuildableAutoSplitter::Server_SetOutputRate(const int32 Output, const f
         }
     }
 
+    OnStateChangedEvent.Broadcast(this);
     return valid;
 }
 
@@ -806,6 +819,7 @@ bool AMFGBuildableAutoSplitter::Server_SetOutputAutomatic(int32 Output, bool Aut
             Automatic ? TEXT("automatic") : TEXT("manual")
         );
     }
+    OnStateChangedEvent.Broadcast(this);
     return valid;
 }
 
@@ -816,7 +830,9 @@ void AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout()
         UE_LOG(LogAutoSplitters,Fatal,TEXT("AMFGBuildableAutoSplitter::Server_ReplicationEnabledTimeout() may only be called on server"));
     }
     UE_LOG(LogAutoSplitters,Display,TEXT("Disabling full data replication for Auto Splitter %p"),this);
+    SetNetDormancy(DORM_DormantAll);
     ClearSplitterFlag(ETransient::IsReplicationEnabled);
+    FlushNetDormancy(); // To get the modified replication state to the clients
 }
 
 
