@@ -29,9 +29,9 @@ struct is_enum_bitfield<EOutputState> : std::true_type {};
 enum class EAutoSplitterPersistentFlags : uint32
 {
     // first eight bits reserved for version
-    ManualInputRate        = 1 <<  8,
-    NeedsConnectionsFixup  = 1 <<  9,
-    NeedsDistributionSetup = 1 << 10
+    ManualInputRate        =  8,
+    NeedsConnectionsFixup  =  9,
+    NeedsDistributionSetup = 10,
 };
 
 template<>
@@ -39,8 +39,17 @@ struct is_enum_bitfield<EAutoSplitterPersistentFlags> : std::true_type{};
 
 enum class EAutoSplitterTransientFlags : uint32
 {
-    // first eight bits reserverd for error code
-    IsReplicationEnabled   = 1 <<  8
+    // first eight bits reserved for error code
+
+    // replication is currently turned on
+    IsReplicationEnabled          =  8,
+
+    // splitter was loaded from save game and needs to be processed accordingly in BeginPlay()
+    NeedsLoadedSplitterProcessing =  9,
+
+    // splitter was deemed incompatible after load process, remove in Invoke_BeginPlay() hook
+    DismantleAfterLoading         = 10,
+
 };
 
 template<>
