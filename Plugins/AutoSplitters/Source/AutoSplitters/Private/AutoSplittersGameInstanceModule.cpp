@@ -9,8 +9,8 @@
 
 void UAutoSplittersGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 {
-    UE_LOG(LogAutoSplitters,Display,TEXT("In UAutoSplittersInitGameInstance::DispatchLifecycleEvent()"));
     Super::DispatchLifecycleEvent(Phase);
+
     switch(Phase)
     {
         case ELifecyclePhase::CONSTRUCTION:
@@ -18,6 +18,7 @@ void UAutoSplittersGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Ph
                 UE_LOG(LogAutoSplitters,Display,TEXT("Registering AutoSplittersRCO object with RemoteCallObjectRegistry"));
                 auto RCORegistry = GetGameInstance()->GetSubsystem<URemoteCallObjectRegistry>();
                 RCORegistry->RegisterRemoteCallObject(UAutoSplittersRCO::StaticClass());
+                break;
             }
         default:
             break;
