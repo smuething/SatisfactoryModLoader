@@ -172,9 +172,6 @@ void FAutoSplittersModule::ReplacePreComponentFixSplitters(UWorld* World, AAutoS
 			CloseDelegate
 		);
 	}
-
-	mPreComponentFixSplitters.Empty();
-
 }
 
 void FAutoSplittersModule::StartupModule()
@@ -255,28 +252,51 @@ void FAutoSplittersModule::StartupModule()
 
 			AutoSplittersSubsystem->NotifyChat(
 				EAAutoSplittersSubsystemSeverity::Error,
-				FString::Printf(TEXT("Removed %d incompatible Auto Splitters"),mDoomedSplitters.Num())
+				FString::Printf(
+					TEXT("Savegame created with version %s that uses unknown serialization version %d, removed %d incompatible Auto Splitters"),
+					*AutoSplittersSubsystem->GetLoadedModVersion().ToString(),
+					AutoSplittersSubsystem->GetSerializationVersion(),
+					mDoomedSplitters.Num()
+					)
 				);
-
-			mDoomedSplitters.Empty();
 		}
-
-		if (AutoSplittersSubsystem->IsModOlderThanSaveGame())
+		else if (AutoSplittersSubsystem->IsModOlderThanSaveGame())
 		{
 			AutoSplittersSubsystem->NotifyChat(
 				EAAutoSplittersSubsystemSeverity::Warning,
 				FString::Printf(
-					TEXT("Running AutoSplitters %s, but the savegame was created with %s"),
+					TEXT("Running %s, but the savegame was created with %s"),
 					*AutoSplittersSubsystem->GetRunningModVersion().ToString(),
 					*AutoSplittersSubsystem->GetLoadedModVersion().ToString()
 					)
 				);
 		}
+		else if (AutoSplittersSubsystem->GetSerializationVersion() < EAutoSplittersSerializationVersion::Latest)
+		{
+			AutoSplittersSubsystem->NotifyChat(
+				EAAutoSplittersSubsystemSeverity::Notice,
+				FString::Printf(
+					TEXT("Now running %s, downgrade to previous version %s will not be possible"),
+					*AutoSplittersSubsystem->GetRunningModVersion().ToString(),
+					*AutoSplittersSubsystem->GetLoadedModVersion().ToString()
+					)
+				);
+		}
+		else if (AutoSplittersSubsystem->GetLoadedModVersion().Compare(AutoSplittersSubsystem->GetRunningModVersion()) < 0)
+		{
+			AutoSplittersSubsystem->NotifyChat(
+				EAAutoSplittersSubsystemSeverity::Info,
+				FString::Printf(
+					TEXT("Upgraded from %s to %s"),
+					*AutoSplittersSubsystem->GetLoadedModVersion().ToString(),
+					*AutoSplittersSubsystem->GetRunningModVersion().ToString()
+					)
+				);
+		}
 
-		AutoSplittersSubsystem->NotifyChat(EAAutoSplittersSubsystemSeverity::Info,TEXT("Info message"));
-		AutoSplittersSubsystem->NotifyChat(EAAutoSplittersSubsystemSeverity::Notice,TEXT("Notice message"));
 		mLoadedSplitterCount = 0;
-
+		mPreComponentFixSplitters.Empty();
+		mDoomedSplitters.Empty();
 	};
 
 
