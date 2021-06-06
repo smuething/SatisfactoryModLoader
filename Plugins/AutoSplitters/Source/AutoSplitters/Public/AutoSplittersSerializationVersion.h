@@ -13,8 +13,6 @@ enum class EAutoSplittersSerializationVersion : uint8
     // first version, for 0.3.x compatibility
     FixedPrecisionArithmetic,
 
-    SeparatedReplicationData,
-
     // keep at the bottom of the list
     VersionPlusOne,
     Latest = VersionPlusOne - 1
