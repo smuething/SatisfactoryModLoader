@@ -6,7 +6,6 @@
 #include "AutoSplittersLog.h"
 
 AAutoSplittersSubsystem* AAutoSplittersSubsystem::sCachedSubsystem = nullptr;
-bool AAutoSplittersSubsystem::sHaveLoadedAutoSplitter = false;
 
 const FVersion AAutoSplittersSubsystem::New_Session = FVersion(INT32_MAX,INT32_MAX,INT32_MAX);
 const FVersion AAutoSplittersSubsystem::ModVersion_Legacy = FVersion(0,0,0);
@@ -14,6 +13,7 @@ const FVersion AAutoSplittersSubsystem::ModVersion_Legacy = FVersion(0,0,0);
 AAutoSplittersSubsystem::AAutoSplittersSubsystem()
     : mLoadedModVersion(New_Session) // marker for new session
     , mSerializationVersion(EAutoSplittersSerializationVersion::Legacy)
+    , mIsNewSession(false)
 {
     ReplicationPolicy = ESubsystemReplicationPolicy::SpawnOnServer;
 }
@@ -35,19 +35,33 @@ void AAutoSplittersSubsystem::Init()
 	FModInfo ModInfo;
     GEngine->GetEngineSubsystem<UModLoadingLibrary>()->GetLoadedModInfo("AutoSplitters",ModInfo);
     mRunningModVersion = ModInfo.Version;
+
+    // preload configuration
     ReloadConfig();
 
     UE_LOG(LogAutoSplitters,Display,TEXT("AAutoSplittersSubsytem initialized: AutoSplitters %s"),*GetRunningModVersion().ToString());
 
-    if (!IsNewSession())
+    // figure out if this a loaded save file or a new session
+    if (GetLoadedModVersion().Compare(New_Session) == 0)
     {
-        if (GetLoadedModVersion().Compare(New_Session) == 0)
+        if (FAutoSplittersModule::Get()->HaveLoadedSplitters())
         {
             // subsystem was not loaded from save, we need to fix this up manually
             mLoadedModVersion = ModVersion_Legacy;
-            sHaveLoadedAutoSplitter = false;
+            mIsNewSession = false;
         }
+        else
+        {
+            mIsNewSession = true;
+        }
+    }
+    else
+    {
+        mIsNewSession = false;
+    }
 
+    if (!IsNewSession())
+    {
         UE_LOG(
             LogAutoSplitters,
             Display,
@@ -97,7 +111,7 @@ void AAutoSplittersSubsystem::NotifyChat(ESeverity Severity, FString Msg) const
     auto ChatManager = AFGChatManager::Get(GetWorld());
 
     FChatMessageStruct Message;
-    Message.MessageString = Msg;
+    Message.MessageString = FString::Printf(TEXT("AutoSplitters: %s"),*Msg);
     Message.MessageType = EFGChatMessageType::CMT_SystemMessage;
     Message.ServerTimeStamp = GetWorld()->TimeSeconds;
 

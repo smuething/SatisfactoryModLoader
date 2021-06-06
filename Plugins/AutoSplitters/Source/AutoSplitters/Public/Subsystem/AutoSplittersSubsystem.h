@@ -12,7 +12,7 @@
 
 #include "AutoSplittersSubsystem.generated.h"
 
-
+UENUM()
 enum class EAAutoSplittersSubsystemSeverity : uint8
 {
     Debug = 1,
@@ -33,7 +33,6 @@ class AUTOSPLITTERS_API AAutoSplittersSubsystem : public AModSubsystem, public I
     friend class FAutoSplittersModule;
 
     static AAutoSplittersSubsystem* sCachedSubsystem;
-    static bool sHaveLoadedAutoSplitter;
 
 public:
 
@@ -67,6 +66,8 @@ private:
 
     UPROPERTY(SaveGame)
     int64 mVersionPatch;
+
+    bool mIsNewSession;
 
     static AAutoSplittersSubsystem* FindAndGet(UObject* WorldContext,bool FailIfMissing);
 
@@ -114,12 +115,7 @@ public:
 
     bool IsNewSession() const
     {
-        return GetLoadedModVersion().Compare(New_Session) == 0 && !sHaveLoadedAutoSplitter;
-    }
-
-    static void RegisterLoadedAutoSplitter(AMFGBuildableAutoSplitter* Splitter)
-    {
-        sHaveLoadedAutoSplitter = true;
+        return mIsNewSession;
     }
 
     void ReloadConfig();

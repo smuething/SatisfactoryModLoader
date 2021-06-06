@@ -312,22 +312,17 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
         UE_LOG(LogAutoSplitters,Fatal,TEXT("PostLoadGame_Implementation() was called without authority"));
     }
 
-    mLeftInCycle = std::accumulate(mRemainingItems.begin(),mRemainingItems.end(),0);
-    mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
-    mCycleTime = -100000.0; // this delays item rate calculation to the first full cycle when loading the game
+    TInlineComponentArray<UFGFactoryConnectionComponent*,6> Connections;
+    GetComponents(Connections);
 
-    if (GetSplitterVersion() == 0)
+    if (Connections.Num() > 4)
     {
-        UE_LOG(LogAutoSplitters,Display,TEXT("Upgrading saved Auto Splitter from version 0 to 1"));
+        UE_LOG(LogAutoSplitters,Display,TEXT("%s: ancient splitter created with 0.2.0 or older"),*GetName());
 
 #if AUTO_SPLITTERS_DEBUG
 
-        TInlineComponentArray<UFGFactoryConnectionComponent*,6> Connections;
-
-        GetComponents(Connections);
-
-        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: connections=%d outputrates_deprecated=%d outputstates=(%d %d %d)"),
-            this,
+        UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %s: connections=%d outputrates_deprecated=%d outputstates=(%d %d %d)"),
+            *GetName(),
             Connections.Num(),
             mOutputRates_DEPRECATED.Num(),
             mOutputStates[0],mOutputStates[1],mOutputStates[2]
@@ -335,27 +330,14 @@ void AMFGBuildableAutoSplitter::PostLoadGame_Implementation(int32 saveVersion, i
 
 #endif
 
-        for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
-        {
-            mIntegralOutputRates[i] = FRACTIONAL_RATE_MULTIPLIER;
-            mOutputStates[i] = ToBitfieldFlag(EOutputState::Automatic);
-            mRemainingItems[i] = 0;
-            mItemsPerCycle[i] = 0;
-        }
-        mLeftInCycle = 0;
-        mCycleLength = 0;
-
         mOutputRates_DEPRECATED.Empty();
 
         SetSplitterFlag(EPersistent::NeedsConnectionsFixup);
-        SetSplitterVersion(1);
     }
 
-    if (!IsSplitterFlagSet(EPersistent::NeedsConnectionsFixup))
-    {
-        SetupDistribution(true);
-        mNeedsInitialDistributionSetup = false;
-    }
+    SetSplitterFlag(ETransient::NeedsLoadedSplitterProcessing);
+
+    FAutoSplittersModule::Get()->OnSplitterLoadedFromSaveGame(this);
 }
 
 UClass* AMFGBuildableAutoSplitter::GetReplicationDetailActorClass() const
@@ -366,13 +348,47 @@ UClass* AMFGBuildableAutoSplitter::GetReplicationDetailActorClass() const
 
 void AMFGBuildableAutoSplitter::BeginPlay()
 {
-
     // we need to fix the connection wiring before calling into our parent class
     if (HasAuthority())
     {
-        if (IsSplitterFlagSet(EPersistent::NeedsConnectionsFixup))
+        if (IsSplitterFlagSet(ETransient::NeedsLoadedSplitterProcessing))
         {
-            FixupConnections();
+
+            // special case for really old and broken splitters created with 0.2.0 and older
+            if (IsSplitterFlagSet(EPersistent::NeedsConnectionsFixup))
+            {
+                FixupConnections();
+                Super::BeginPlay();
+                return;
+            }
+
+            const auto AutoSplittersSubsystem = AAutoSplittersSubsystem::Get(this);
+
+            switch (AutoSplittersSubsystem->GetSerializationVersion())
+            {
+            case EAutoSplittersSerializationVersion::Legacy:
+                {
+                    break;
+                }
+            case EAutoSplittersSerializationVersion::FixedPrecisionArithmetic:
+                {
+                    break;
+                }
+            default:
+                {
+                    UE_LOG(LogAutoSplitters,Error,TEXT("AutoSplitter %s was saved with an unsupported serialization version, will be removed"),*GetName());
+                    FAutoSplittersModule::Get()->ScheduleDismantle(this);
+                }
+            }
+
+            mLeftInCycle = std::accumulate(mRemainingItems.begin(),mRemainingItems.end(),0);
+            mCycleLength = std::accumulate(mItemsPerCycle.begin(),mItemsPerCycle.end(),0);
+            mCycleTime = -100000.0; // this delays item rate calculation to the first full cycle when loading the game
+
+            SetupDistribution(true);
+            mNeedsInitialDistributionSetup = false;
+            ClearSplitterFlag(ETransient::NeedsLoadedSplitterProcessing);
+
         }
 
         Super::BeginPlay();
@@ -929,7 +945,7 @@ void AMFGBuildableAutoSplitter::FixupConnections()
 
 #endif
 
-    auto& [This,OldBluePrintConnections,ConveyorConnections] = Module->mPreUpgradeSplitters.Add_GetRef({this,{},{}});
+    auto& [This,OldBluePrintConnections,ConveyorConnections] = Module->mPreComponentFixSplitters.Add_GetRef({this,{},{}});
 
     for (auto Connection : Connections)
     {
@@ -1399,29 +1415,11 @@ bool AMFGBuildableAutoSplitter::DiscoverHierarchy(
     else
     {
         auto [_,MaxRate,Ready] = FindAutoSplitterAndMaxBeltRate(Splitter->mInputs[0],false);
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Ready)
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Splitter);
-#endif
-            return false;
-        }
-#endif
         Node.MaxInputRate = MaxRate;
     }
     for (int32 i = 0 ; i < NUM_OUTPUTS ; ++i)
     {
         const auto [Downstream,MaxRate,Ready] = FindFactoryAndMaxBeltRate(Splitter->mOutputs[i], true);
-#if AUTO_SPLITTERS_DELAY_UNTIL_READY
-        if (!Ready)
-        {
-#if AUTO_SPLITTERS_DEBUG
-            UE_LOG(LogAutoSplitters,Display,TEXT("Splitter %p: Aborting because not ready"),Splitter);
-#endif
-            return false;
-        }
-#endif
         Node.MaxOutputRates[i] = MaxRate;
         if (Downstream)
         {
