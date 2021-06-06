@@ -4,6 +4,7 @@
 
 #include <array>
 
+#include "FGPlayerController.h"
 #include "FGFactoryConnectionComponent.h"
 #include "Buildables/FGBuildableAttachmentSplitter.h"
 #include "Buildables/FGBuildableConveyorBase.h"
@@ -380,7 +381,7 @@ private:
 
     void SetSplitterVersion(uint32 Version);
 
-    bool IsSplitterFlagSet(EPersistent Flag) const
+    FORCEINLINE bool IsSplitterFlagSet(EPersistent Flag) const
     {
         return IsSet(mPersistentState,Flag);
     }
@@ -405,7 +406,7 @@ private:
         mPersistentState = ToggleFlag(mPersistentState,Flag);
     }
 
-    bool IsSplitterFlagSet(ETransient Flag) const
+    FORCEINLINE bool IsSplitterFlagSet(ETransient Flag) const
     {
         return IsSet(mTransientState,Flag);
     }
