@@ -79,7 +79,7 @@ struct AUTOSPLITTERS_API FMFGBuildableAutoSplitterReplicatedProperties
     int32 TargetInputRate;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
-    int32 IntegralOutputRates[NUM_OUTPUTS];
+    int32 OutputRates[NUM_OUTPUTS];
 
     UPROPERTY(Transient, BlueprintReadOnly)
     int32 LeftInCycle;
@@ -198,7 +198,7 @@ protected:
     TArray<int32> mOutputStates_DEPRECATED;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
-    TArray<int32> mRemainingItems;
+    TArray<int32> mRemainingItems_DEPRECATED;
 
     UPROPERTY(SaveGame, Meta = (NoAutoJson))
     uint32 mPersistentState_DEPRECATED;
@@ -210,10 +210,10 @@ protected:
     TArray<int32> mIntegralOutputRates_DEPRECATED;
 
     UPROPERTY(Transient)
-    TArray<int32> mItemsPerCycle;
-
-    UPROPERTY(Transient)
     int32 mLeftInCycle_DEPRECATED;
+
+    UPROPERTY(SaveGame, Meta = (NoAutoJson))
+    int32 mLeftInCycleForOutputs[NUM_OUTPUTS];
 
     UPROPERTY(Transient, BlueprintReadWrite)
     bool mDebug;
@@ -232,6 +232,7 @@ protected:
 
 private:
 
+    std::array<int32,NUM_OUTPUTS> mItemsPerCycle;
     std::array<float,NUM_OUTPUTS> mBlockedFor;
     std::array<int32,NUM_OUTPUTS> mAssignedItems;
     std::array<int32,NUM_OUTPUTS> mGrabbedItems;
